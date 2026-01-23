@@ -1,0 +1,8 @@
+{
+  "name": "Industrial Maintenance AI Copilot",
+  "description": "A professional-grade diagnostic assistant for industrial technicians, featuring context-aware AI analysis, manual citation, and technical schematic visualization.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

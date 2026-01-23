@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Industrial Maintenance AI Copilot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            colors: {
+              industrial: {
+                900: '#0B0C10', // Deepest background
+                800: '#1F2833', // Secondary background
+                700: '#C5C6C7', // Text Muted
+                accent: '#FF6600', // Safety Orange
+                highlight: '#E65100', // Darker Orange
+                paper: '#ffffff', // Light mode paper
+                subtle: '#f3f4f6', // Light mode subtle
+              }
+            },
+            boxShadow: {
+              'glow': '0 0 15px rgba(255, 102, 0, 0.15)',
+              'glow-strong': '0 0 20px rgba(255, 102, 0, 0.3)',
+              'card': '0 2px 8px rgba(0, 0, 0, 0.05)',
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body {
+        @apply bg-gray-50 text-gray-900 dark:bg-[#0B0C10] dark:text-[#C5C6C7] transition-colors duration-300;
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        @apply bg-transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        @apply bg-gray-300 dark:bg-[#1F2833] rounded-full;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        @apply bg-industrial-accent;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
