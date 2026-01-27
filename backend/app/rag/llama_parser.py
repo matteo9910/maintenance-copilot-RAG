@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import List, Optional
 from langchain_core.documents import Document
 
+# Apply nest_asyncio to allow nested event loops (required for FastAPI + LlamaParse)
+import nest_asyncio
+nest_asyncio.apply()
+
 from app.core.config import settings
 
 
