@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     LLAMA_CLOUD_API_KEY: str = ""
 
     # Default Model
-    DEFAULT_MODEL: str = "openai/gpt-4o"
+    DEFAULT_MODEL: str = "anthropic/claude-sonnet-4.5"
 
     # ChromaDB
     CHROMA_PERSIST_DIRECTORY: str = "../data/chroma_db"

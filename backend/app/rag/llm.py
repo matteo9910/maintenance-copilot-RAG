@@ -7,9 +7,9 @@ from app.core.config import settings
 
 # Available models via OpenRouter
 AVAILABLE_MODELS = {
-    "openai/gpt-4o": "GPT-4o (OpenAI)",
-    "anthropic/claude-3.5-sonnet": "Claude 3.5 Sonnet (Anthropic)",
-    "google/gemini-1.5-pro": "Gemini 1.5 Pro (Google)"
+    "anthropic/claude-sonnet-4.5": "Claude Sonnet 4.5 (Anthropic)",
+    "openai/chatgpt-4o-latest": "ChatGPT-4o Latest (OpenAI)",
+    "google/gemini-3-pro-preview": "Gemini 3 Pro Preview (Google)"
 }
 
 
