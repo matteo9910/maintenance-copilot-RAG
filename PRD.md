@@ -1,8 +1,8 @@
 # Product Requirements Document (PRD)
 **Project Name:** Maintenance AI Copilot (PoC)
-**Version:** 1.0
-**Status:** Ready for Development
-**Date:** 2026-01-23
+**Version:** 2.0
+**Status:** Advanced RAG Implementation Complete
+**Date:** 2026-01-27
 **Owner:** Senior AI Engineer (Big4 Team)
 
 ---
@@ -11,6 +11,12 @@
 Il "Maintenance AI Copilot" è un'applicazione web PoC progettata per supportare i tecnici di manutenzione industriale nella risoluzione rapida dei guasti.
 Il sistema utilizza un'architettura **RAG (Retrieval-Augmented Generation)** ibrida: il frontend e il database vettoriale risiedono in locale (Local Host) per garantire velocità e controllo, mentre l'intelligenza generativa è fornita tramite **OpenRouter API**, permettendo all'utente di selezionare dinamicamente il modello LLM più adatto (GPT-4o, Claude 3.5, Gemini 1.5).
 Il progetto adotta rigorosamente il framework di sviluppo **DOE (Directive-Orchestration-Execution)** per garantire affidabilità e manutenibilità.
+
+### v2.0 - Advanced RAG Architecture (2026-01-27)
+Il sistema è stato evoluto da un **Naive RAG** a un **Agentic RAG** con le seguenti migliorie:
+
+1. **LlamaParse Integration**: Parsing PDF avanzato con modelli di visione per estrazione accurata di tabelle complesse
+2. **LangGraph Agentic RAG**: Sistema di retrieval multi-hop che segue automaticamente riferimenti incrociati nei documenti
 
 ---
 
@@ -53,6 +59,20 @@ Il sistema segue l'architettura a 3 livelli definita nel `SYSTEM_SOP.md`:
 * **Vector Store:** **ChromaDB** (Persistenza su disco locale in `./data/chroma_db`).
 * **Ingestion Engine:** Script ottimizzati per parsing PDF (inclusi tabelle) e generazione embeddings.
 
+### 4.4. RAG Module Architecture (v2.0)
+
+Il modulo RAG (`backend/app/rag/`) è composto dai seguenti componenti:
+
+| Modulo | Descrizione |
+|--------|-------------|
+| `llama_parser.py` | Parsing PDF con LlamaParse (vision models) |
+| `ingestion.py` | Pipeline di ingestion con fallback PyPDFLoader |
+| `embeddings.py` | Configurazione OpenAI Embeddings |
+| `vector_store.py` | Gestione ChromaDB (singleton pattern) |
+| `agent.py` | LangGraph agent per multi-hop retrieval |
+| `chain.py` | Orchestratore RAG (agentic/legacy routing) |
+| `llm.py` | Configurazione LLM via OpenRouter |
+
 ---
 
 ## 5. Functional Requirements (FR)
@@ -82,6 +102,32 @@ Il sistema segue l'architettura a 3 livelli definita nel `SYSTEM_SOP.md`:
 ### FR-05: Context-Aware Chat
 * **Descrizione:** Il sistema deve mantenere la memoria della conversazione corrente (Multi-turn conversation).
 * **Limiti:** La memoria è limitata alla sessione attiva (reset al refresh per il PoC).
+
+### FR-06: Advanced PDF Parsing (LlamaParse) - v2.0
+* **Descrizione:** Il sistema utilizza LlamaParse per il parsing dei PDF, sfruttando modelli di visione per comprendere il layout strutturale dei documenti.
+* **Problema Risolto:** I loader tradizionali (PyPDFLoader) "appiattiscono" le tabelle, causando associazioni errate tra celle unite e righe. LlamaParse preserva la struttura delle tabelle convertendole in Markdown strutturato.
+* **Configurazione:**
+    * `USE_LLAMA_PARSE`: Flag per abilitare/disabilitare (default: True)
+    * `LLAMA_PARSE_RESULT_TYPE`: Formato output ("markdown" per tabelle strutturate)
+* **Fallback:** Se LlamaParse fallisce o non è disponibile, il sistema utilizza automaticamente PyPDFLoader.
+
+### FR-07: Agentic RAG with Multi-hop Retrieval (LangGraph) - v2.0
+* **Descrizione:** Il sistema utilizza un agente LangGraph che può eseguire multiple ricerche per rispondere a domande complesse che richiedono cross-referencing tra sezioni del documento.
+* **Problema Risolto:** Il RAG lineare (naive) esegue una sola ricerca per similarità. Se il documento dice "Vedi Pagina 131" ma la pagina 131 non contiene le keyword della query originale, le informazioni non vengono recuperate. L'agente riconosce questi riferimenti e esegue ricerche aggiuntive.
+* **Flusso Agentico:**
+    1. L'agente riceve la domanda dell'utente
+    2. Usa il tool `search_maintenance_docs` per cercare nel knowledge base
+    3. Analizza i risultati e identifica riferimenti a altre pagine/tabelle/note
+    4. Esegue ricerche aggiuntive per recuperare il contenuto referenziato
+    5. Integra tutte le informazioni e genera la risposta finale
+* **Configurazione:**
+    * `USE_AGENTIC_RAG`: Flag per abilitare/disabilitare (default: True)
+    * `MAX_AGENT_ITERATIONS`: Limite massimo di hop (default: 5)
+* **Loop Detection:** Il sistema rileva e previene loop infiniti tracciando le query già eseguite.
+* **Metadata Response:** La risposta include metadati sul processo RAG:
+    * `mode`: "agentic" o "legacy"
+    * `iterations`: Numero di iterazioni di retrieval
+    * `queries_executed`: Lista delle query eseguite
 
 ---
 
@@ -113,16 +159,37 @@ Il sistema segue l'architettura a 3 livelli definita nel `SYSTEM_SOP.md`:
 
 ---
 
-## 7. API Interface (Draft Spec)
+## 7. API Interface (v2.0)
 
 Il Frontend comunicherà con il Backend FastAPI tramite le seguenti rotte:
 
 | Method | Endpoint | Payload | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/health` | - | Verifica stato sistema e DB |
-| `POST` | `/api/chat` | `{ query: string, history: [], model: string, image: base64? }` | Invia messaggio e recupera risposta stream/text |
+| `POST` | `/api/chat` | `{ query: string, history: [], model: string, image: base64? }` | Invia messaggio e recupera risposta |
 | `GET` | `/api/documents` | - | Lista i documenti indicizzati nel DB |
 | `POST` | `/api/ingest` | - | Forza il re-indexing della cartella raw_pdfs |
+
+### Chat Response Schema (v2.0)
+```json
+{
+  "answer": "string",
+  "sources": [
+    {
+      "content": "string",
+      "source": "filename.pdf",
+      "page": 123
+    }
+  ],
+  "conversation_id": "uuid",
+  "model_used": "openai/gpt-4o",
+  "rag_metadata": {
+    "mode": "agentic | legacy",
+    "iterations": 2,
+    "queries_executed": ["query1", "query2"]
+  }
+}
+```
 
 ---
 
@@ -156,3 +223,40 @@ Il Frontend comunicherà con il Backend FastAPI tramite le seguenti rotte:
 * System Prompt Engineering (Migliorare la personalità dell'AI).
 * UI Polish (Dark mode, icone, animazioni loading).
 * Demo Preparation.
+
+**Phase 5: Advanced RAG Architecture (Days 11-12) - COMPLETED**
+* Integrazione LlamaParse per parsing PDF con vision models.
+* Implementazione LangGraph per Agentic RAG con multi-hop retrieval.
+* Loop detection e gestione limiti di iterazione.
+* Aggiornamento API response con RAG metadata.
+* Testing end-to-end del sistema agentico.
+
+---
+
+## 10. Configuration Reference (v2.0)
+
+### Environment Variables (.env)
+```bash
+# OpenRouter API
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+# OpenAI API (Embeddings)
+OPENAI_API_KEY=sk-proj-...
+
+# LlamaCloud API (LlamaParse)
+LLAMA_CLOUD_API_KEY=llx-...
+
+# Feature Flags
+USE_LLAMA_PARSE=true
+USE_AGENTIC_RAG=true
+MAX_AGENT_ITERATIONS=5
+```
+
+### Dependencies Added (v2.0)
+```
+llama-parse>=0.4.0
+llama-index>=0.10.0
+langgraph>=0.2.0
+nest-asyncio
+```

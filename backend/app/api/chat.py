@@ -31,12 +31,20 @@ class SourceDocument(BaseModel):
     page: Optional[int] = None
 
 
+class RAGMetadata(BaseModel):
+    """Metadata about RAG processing."""
+    mode: str = Field(default="legacy", description="RAG mode: 'agentic' or 'legacy'")
+    iterations: int = Field(default=1, description="Number of retrieval iterations")
+    queries_executed: List[str] = Field(default=[], description="Search queries executed")
+
+
 class ChatResponse(BaseModel):
     """Chat response schema."""
     answer: str
     sources: List[SourceDocument]
     conversation_id: str
     model_used: str
+    rag_metadata: Optional[RAGMetadata] = Field(None, description="RAG processing metadata")
 
 
 @router.post("", response_model=ChatResponse)
@@ -68,11 +76,20 @@ async def chat(request: ChatRequest):
             for src in result.get("sources", [])
         ]
 
+        # Extract RAG metadata if available
+        metadata = result.get("metadata", {})
+        rag_metadata = RAGMetadata(
+            mode=metadata.get("mode", "legacy"),
+            iterations=metadata.get("iterations", 1),
+            queries_executed=metadata.get("queries_executed", [])
+        )
+
         return ChatResponse(
             answer=result["answer"],
             sources=sources,
             conversation_id=str(uuid.uuid4()),
-            model_used=request.model or "openai/gpt-4o"
+            model_used=request.model or "openai/gpt-4o",
+            rag_metadata=rag_metadata
         )
 
     except Exception as e:

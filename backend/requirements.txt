@@ -14,6 +14,12 @@ openai>=1.10.0
 # PDF Processing
 pypdf>=3.17.0
 pdfplumber>=0.10.3
+llama-parse>=0.4.0
+llama-index>=0.10.0
+
+# Agentic RAG (LangGraph)
+langgraph>=0.2.0
+langchain-core>=0.3.0
 
 # Utilities
 python-dotenv>=1.0.0

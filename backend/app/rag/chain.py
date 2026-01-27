@@ -1,4 +1,11 @@
-"""RAG Chain Implementation."""
+"""RAG Chain Implementation.
+
+This module provides two RAG modes:
+1. Agentic RAG (default): Uses LangGraph for multi-hop retrieval
+2. Legacy RAG: Linear chain with single retrieval (fallback)
+
+The mode is controlled by settings.USE_AGENTIC_RAG.
+"""
 from typing import Optional, List, Dict, Any
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.documents import Document
@@ -6,8 +13,10 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
+from app.core.config import settings
 from app.rag.llm import get_llm
 from app.rag.vector_store import get_retriever
+from app.rag.agent import query_rag_agent, is_agentic_rag_available
 
 
 # System prompt for the Maintenance AI Copilot
@@ -103,19 +112,88 @@ async def query_rag(
     question: str,
     model_id: Optional[str] = None,
     chat_history: Optional[List[Dict[str, str]]] = None,
-    k: int = 4
+    k: int = 4,
+    use_agent: Optional[bool] = None
 ) -> Dict[str, Any]:
     """
     Query the RAG system.
+
+    Uses Agentic RAG (multi-hop) by default if enabled in settings.
+    Falls back to legacy linear chain if agent is disabled or unavailable.
 
     Args:
         question: User's question
         model_id: LLM model to use
         chat_history: Previous conversation history
         k: Number of documents to retrieve
+        use_agent: Override settings to force agent/legacy mode
 
     Returns:
-        Dict with answer and source documents
+        Dict with answer, sources, and metadata
+    """
+    # Determine if we should use the agentic system
+    should_use_agent = use_agent if use_agent is not None else settings.USE_AGENTIC_RAG
+
+    if should_use_agent and is_agentic_rag_available():
+        print("Using Agentic RAG (multi-hop retrieval)")
+        return await _query_rag_agentic(question, model_id, chat_history)
+    else:
+        print("Using Legacy RAG (single retrieval)")
+        return await _query_rag_legacy(question, model_id, chat_history, k)
+
+
+async def _query_rag_agentic(
+    question: str,
+    model_id: Optional[str] = None,
+    chat_history: Optional[List[Dict[str, str]]] = None
+) -> Dict[str, Any]:
+    """
+    Query using the Agentic RAG system (multi-hop retrieval).
+
+    The agent can perform multiple searches to gather complete information,
+    following references to other pages, tables, or notes.
+    """
+    result = await query_rag_agent(
+        question=question,
+        model_id=model_id,
+        chat_history=chat_history
+    )
+
+    # Format sources for compatibility with existing frontend
+    formatted_sources = []
+    for source in result.get("sources", []):
+        formatted_sources.append({
+            "content": "",  # Agent doesn't return full content
+            "source": source.get("document", "Unknown"),
+            "page": source.get("page"),
+            "chapter": None,
+            "section": None,
+            "chunk_index": None,
+            "total_chunks": None,
+            "relevance_score": None
+        })
+
+    return {
+        "answer": result["answer"],
+        "sources": formatted_sources,
+        "metadata": {
+            "mode": "agentic",
+            "iterations": result.get("iterations", 0),
+            "queries_executed": result.get("queries_executed", [])
+        }
+    }
+
+
+async def _query_rag_legacy(
+    question: str,
+    model_id: Optional[str] = None,
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    k: int = 4
+) -> Dict[str, Any]:
+    """
+    Query using the legacy linear RAG chain (single retrieval).
+
+    This is the original implementation that performs one similarity search.
     """
     retriever = get_retriever(k=k)
     llm = get_llm(model_id=model_id)
@@ -161,5 +239,10 @@ async def query_rag(
 
     return {
         "answer": answer,
-        "sources": sources
+        "sources": sources,
+        "metadata": {
+            "mode": "legacy",
+            "iterations": 1,
+            "queries_executed": [question]
+        }
     }

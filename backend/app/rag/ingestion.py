@@ -1,4 +1,10 @@
-"""PDF Ingestion Pipeline for Knowledge Base."""
+"""PDF Ingestion Pipeline for Knowledge Base.
+
+This module handles the ingestion of PDF documents into the vector store.
+It supports two parsing modes:
+1. LlamaParse (default): Uses vision models for accurate table extraction
+2. PyPDFLoader (fallback): Traditional text-based PDF extraction
+"""
 import os
 import re
 from pathlib import Path
@@ -9,6 +15,7 @@ from langchain_community.document_loaders import PyPDFLoader
 
 from app.core.config import settings
 from app.rag.vector_store import get_vector_store, clear_collection, get_collection_stats
+from app.rag.llama_parser import load_pdf_with_llama_parse, is_llama_parse_available
 
 
 def extract_metadata_from_filename(filename: str) -> Dict[str, str]:
@@ -43,20 +50,47 @@ def extract_metadata_from_filename(filename: str) -> Dict[str, str]:
     }
 
 
-def load_pdf(pdf_path: Path) -> List[Document]:
-    """Load a single PDF and return documents with metadata."""
+def load_pdf(pdf_path: Path, use_llama_parse: Optional[bool] = None) -> List[Document]:
+    """
+    Load a single PDF and return documents with metadata.
+
+    Uses LlamaParse by default for better table extraction.
+    Falls back to PyPDFLoader if LlamaParse fails or is disabled.
+
+    Args:
+        pdf_path: Path to the PDF file.
+        use_llama_parse: Override config setting for LlamaParse usage.
+
+    Returns:
+        List of Document objects with content and metadata.
+    """
+    # Extract metadata from filename first
+    file_metadata = extract_metadata_from_filename(pdf_path.name)
+
+    # Determine if we should use LlamaParse
+    should_use_llama = use_llama_parse if use_llama_parse is not None else settings.USE_LLAMA_PARSE
+
+    # Try LlamaParse first if enabled and available
+    if should_use_llama and is_llama_parse_available():
+        print(f"  Using LlamaParse for: {pdf_path.name}")
+        pages = load_pdf_with_llama_parse(pdf_path, file_metadata)
+        if pages:
+            return pages
+        print(f"  LlamaParse failed, falling back to PyPDFLoader for: {pdf_path.name}")
+
+    # Fallback to PyPDFLoader
     try:
+        print(f"  Using PyPDFLoader for: {pdf_path.name}")
         loader = PyPDFLoader(str(pdf_path))
         pages = loader.load()
-
-        # Extract metadata from filename
-        file_metadata = extract_metadata_from_filename(pdf_path.name)
 
         # Add metadata to each page
         for page in pages:
             page.metadata.update(file_metadata)
             page.metadata["source"] = pdf_path.name
+            page.metadata["parser"] = "pypdf"
 
+        print(f"  -> PyPDFLoader extracted {len(pages)} pages from {pdf_path.name}")
         return pages
     except Exception as e:
         print(f"Error loading {pdf_path.name}: {e}")
