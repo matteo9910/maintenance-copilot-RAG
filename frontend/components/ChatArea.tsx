@@ -188,7 +188,11 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               >
                 {msg.role === 'model' && (
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-industrial-accent to-orange-400 flex-shrink-0 flex items-center justify-center mt-1 shadow-md">
-                     <Cpu className="w-4 h-4 text-white" />
+                     {msg.isThinking ? (
+                       <Loader2 className="w-4 h-4 text-white animate-spin" />
+                     ) : (
+                       <Cpu className="w-4 h-4 text-white" />
+                     )}
                   </div>
                 )}
 

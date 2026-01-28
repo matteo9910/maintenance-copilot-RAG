@@ -48,6 +48,23 @@ class AgentState(TypedDict):
 # RETRIEVAL TOOL
 # =============================================================================
 
+# Global storage for retrieved documents during agent execution
+# This allows us to capture full document content for the trust layer
+_retrieved_documents_store: List[Dict[str, Any]] = []
+
+
+def clear_retrieved_documents():
+    """Clear the retrieved documents store before a new query."""
+    global _retrieved_documents_store
+    _retrieved_documents_store = []
+
+
+def get_retrieved_documents() -> List[Dict[str, Any]]:
+    """Get all documents retrieved during agent execution."""
+    global _retrieved_documents_store
+    return _retrieved_documents_store
+
+
 def create_retrieval_tool(k: int = 4):
     """
     Create a retrieval tool for the agent.
@@ -85,6 +102,7 @@ def create_retrieval_tool(k: int = 4):
         Returns:
             Relevant documentation excerpts with source information.
         """
+        global _retrieved_documents_store
         docs = retriever.invoke(query)
 
         if not docs:
@@ -95,12 +113,37 @@ def create_retrieval_tool(k: int = 4):
         for i, doc in enumerate(docs, 1):
             source = doc.metadata.get("source", "Unknown")
             page = doc.metadata.get("page", "N/A")
-            content = doc.page_content[:1500]  # Limit content length
+            chapter = doc.metadata.get("chapter")
+            section = doc.metadata.get("section")
+            chunk_index = doc.metadata.get("chunk_index")
+            total_chunks = doc.metadata.get("total_chunks")
+            # Store full content for trust layer (1500 chars as per requirement)
+            full_content = doc.page_content[:1500]
+
+            # Store document with full metadata for trust layer
+            doc_entry = {
+                "content": full_content,
+                "source": source,
+                "page": page if page != "N/A" else None,
+                "chapter": chapter,
+                "section": section,
+                "chunk_index": chunk_index,
+                "total_chunks": total_chunks,
+                "query": query
+            }
+
+            # Avoid duplicates based on source + page + chunk_index
+            is_duplicate = any(
+                d["source"] == source and d["page"] == doc_entry["page"] and d.get("chunk_index") == chunk_index
+                for d in _retrieved_documents_store
+            )
+            if not is_duplicate:
+                _retrieved_documents_store.append(doc_entry)
 
             results.append(
                 f"[Document {i}]\n"
                 f"Source: {source} (Page {page})\n"
-                f"Content:\n{content}\n"
+                f"Content:\n{full_content}\n"
                 f"---"
             )
 
@@ -343,10 +386,13 @@ async def query_rag_agent(
     Returns:
         Dict containing:
         - answer: The agent's response
-        - sources: List of sources used
+        - sources: List of sources used (with full content for trust layer)
         - iterations: Number of retrieval iterations
         - queries_executed: List of search queries performed
     """
+    # Clear retrieved documents store before new query
+    clear_retrieved_documents()
+
     # Build initial messages
     messages = []
 
@@ -393,31 +439,25 @@ async def query_rag_agent(
                 answer = msg.content
                 break
 
-    # Extract sources from tool messages
+    # Get all retrieved documents with full content for trust layer
+    retrieved_docs = get_retrieved_documents()
+
+    # Format sources with full metadata and content
     sources = []
     seen_sources = set()
-    for msg in final_messages:
-        if isinstance(msg, ToolMessage):
-            # Parse sources from tool response
-            content = msg.content
-            # Extract source information (basic parsing)
-            import re
-            source_matches = re.findall(r'Source: ([^\n]+)', content)
-            for source in source_matches:
-                if source not in seen_sources:
-                    seen_sources.add(source)
-                    # Parse "filename.pdf (Page X)" format
-                    match = re.match(r'(.+\.pdf)\s*\(Page (\d+)\)', source)
-                    if match:
-                        sources.append({
-                            "document": match.group(1),
-                            "page": int(match.group(2))
-                        })
-                    else:
-                        sources.append({
-                            "document": source,
-                            "page": None
-                        })
+    for doc in retrieved_docs:
+        source_key = f"{doc['source']}_{doc.get('page')}_{doc.get('chunk_index')}"
+        if source_key not in seen_sources:
+            seen_sources.add(source_key)
+            sources.append({
+                "document": doc["source"],
+                "page": doc.get("page"),
+                "chapter": doc.get("chapter"),
+                "section": doc.get("section"),
+                "chunk_index": doc.get("chunk_index"),
+                "total_chunks": doc.get("total_chunks"),
+                "content": doc.get("content", "")  # Full content for trust layer
+            })
 
     return {
         "answer": answer,

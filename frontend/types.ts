@@ -40,3 +40,12 @@ export interface ChatSession {
   date: string;
   status: 'active' | 'resolved' | 'archived';
 }
+
+export interface TableData {
+  id: string;
+  title: string;
+  markdown: string;
+  type: 'summary' | 'source' | 'data';
+  source?: string;
+  page?: number;
+}

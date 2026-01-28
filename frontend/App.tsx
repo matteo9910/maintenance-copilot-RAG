@@ -4,7 +4,7 @@ import ChatArea from './components/ChatArea';
 import ContextPanel from './components/ContextPanel';
 import { Message, Reference, ChatSession } from './types';
 import { AI_MODELS } from './constants';
-import { sendMessageToBackend, checkHealth } from './services/backendService';
+import { sendMessageToBackend, sendMessageStreaming, checkHealth } from './services/backendService';
 
 // Helper to extract title from first query (max 40 chars)
 const extractTitle = (query: string): string => {
@@ -118,72 +118,183 @@ const App: React.FC = () => {
 
     setIsThinking(true);
 
+    // Create AI message ID for streaming updates
+    const aiMessageId = (Date.now() + 1).toString();
+    let streamedContent = '';
+    let streamedReferences: Reference[] = [];
+
     try {
-      // 2. Prepare Payload
-      let imageBase64: string | undefined = undefined;
+      // 2. Check if image is attached - use non-streaming for images
       if (image) {
         const fullBase64 = await fileToBase64(image);
-        imageBase64 = fullBase64.split(',')[1]; // Remove data URL prefix
-      }
+        const imageBase64 = fullBase64.split(',')[1];
 
-      // 3. Call Backend RAG API
-      const response = await sendMessageToBackend(
-        text,
-        selectedModel,
-        getMessageHistory(),
-        imageBase64
-      );
+        const response = await sendMessageToBackend(
+          text,
+          selectedModel,
+          getMessageHistory(),
+          imageBase64
+        );
 
-      // 4. Convert backend sources to References with extended metadata
-      const references: Reference[] = response.sources.map((source: any, index: number) => ({
-        id: `ref-${Date.now()}-${index}`,
-        title: source.source,
-        source: source.source,
-        page: source.page ? `Page ${source.page}` : undefined,
-        chapter: source.chapter,
-        section: source.section,
-        chunkIndex: source.chunk_index,
-        totalChunks: source.total_chunks,
-        description: source.content.substring(0, 300) + '...',
-        fullContent: source.content
-      }));
-
-      // 5. Create AI Response
-      const newAiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'model',
-        content: response.answer,
-        timestamp: new Date(),
-        references: references.length > 0 ? references : undefined
-      };
-
-      setMessages(prev => [...prev, newAiMessage]);
-
-      // Update sessions messages with AI response
-      if (sessionId) {
-        setSessionsMessages(prev => ({
-          ...prev,
-          [sessionId]: [...(prev[sessionId] || []), newAiMessage]
+        const references: Reference[] = response.sources.map((source: any, index: number) => ({
+          id: `ref-${Date.now()}-${index}`,
+          title: source.source,
+          source: source.source,
+          page: source.page ? `Page ${source.page}` : undefined,
+          chapter: source.chapter,
+          section: source.section,
+          chunkIndex: source.chunk_index,
+          totalChunks: source.total_chunks,
+          description: source.content ? source.content.substring(0, 300) + '...' : '',
+          fullContent: source.content || ''
         }));
-      }
 
-      // 6. Show context panel if we have references
-      if (references.length > 0) {
-        setActiveReference(references[0]);
-        setIsContextPanelOpen(true);
+        const newAiMessage: Message = {
+          id: aiMessageId,
+          role: 'model',
+          content: response.answer,
+          timestamp: new Date(),
+          references: references.length > 0 ? references : undefined
+        };
+
+        setMessages(prev => [...prev, newAiMessage]);
+
+        if (sessionId) {
+          setSessionsMessages(prev => ({
+            ...prev,
+            [sessionId]: [...(prev[sessionId] || []), newAiMessage]
+          }));
+        }
+
+        if (references.length > 0) {
+          setActiveReference(references[0]);
+          setIsContextPanelOpen(true);
+        }
+      } else {
+        // 3. Use streaming for text-only queries (reduced latency)
+
+        // Create empty AI message that will be updated with streaming tokens
+        const initialAiMessage: Message = {
+          id: aiMessageId,
+          role: 'model',
+          content: '',
+          timestamp: new Date(),
+          isThinking: true
+        };
+
+        setMessages(prev => [...prev, initialAiMessage]);
+        setIsThinking(false); // Turn off thinking indicator since we show streaming
+
+        // Stream the response
+        await sendMessageStreaming(
+          text,
+          selectedModel,
+          getMessageHistory(),
+          {
+            onToken: (token) => {
+              streamedContent += token;
+              // Update the message content as tokens arrive
+              setMessages(prev =>
+                prev.map(msg =>
+                  msg.id === aiMessageId
+                    ? { ...msg, content: streamedContent }
+                    : msg
+                )
+              );
+            },
+            onSources: (sources) => {
+              // Convert sources to references
+              streamedReferences = sources.map((source: any, index: number) => ({
+                id: `ref-${Date.now()}-${index}`,
+                title: source.source,
+                source: source.source,
+                page: source.page ? `Page ${source.page}` : undefined,
+                chapter: source.chapter,
+                section: source.section,
+                chunkIndex: source.chunk_index,
+                totalChunks: source.total_chunks,
+                description: source.content ? source.content.substring(0, 300) + '...' : '',
+                fullContent: source.content || ''
+              }));
+            },
+            onMetadata: (_metadata) => {
+              // Metadata received - could be used for debugging or UI
+              console.log('RAG Metadata:', _metadata);
+            },
+            onDone: () => {
+              // Finalize the message with references
+              setMessages(prev =>
+                prev.map(msg =>
+                  msg.id === aiMessageId
+                    ? {
+                        ...msg,
+                        content: streamedContent,
+                        isThinking: false,
+                        references: streamedReferences.length > 0 ? streamedReferences : undefined
+                      }
+                    : msg
+                )
+              );
+
+              // Update session messages
+              if (sessionId) {
+                const finalMessage: Message = {
+                  id: aiMessageId,
+                  role: 'model',
+                  content: streamedContent,
+                  timestamp: new Date(),
+                  references: streamedReferences.length > 0 ? streamedReferences : undefined
+                };
+                setSessionsMessages(prev => ({
+                  ...prev,
+                  [sessionId]: [...(prev[sessionId] || []), finalMessage]
+                }));
+              }
+
+              // Show context panel with first reference
+              if (streamedReferences.length > 0) {
+                setActiveReference(streamedReferences[0]);
+                setIsContextPanelOpen(true);
+              }
+            },
+            onError: (error) => {
+              console.error('Streaming error:', error);
+              setMessages(prev =>
+                prev.map(msg =>
+                  msg.id === aiMessageId
+                    ? {
+                        ...msg,
+                        content: "CRITICAL FAILURE: Unable to process streaming response. Please try again.",
+                        isThinking: false
+                      }
+                    : msg
+                )
+              );
+            }
+          }
+        );
       }
 
     } catch (error) {
       console.error(error);
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: aiMessageId,
         role: 'model',
         content: backendStatus === 'offline'
           ? "SYSTEM ERROR: Backend RAG service is offline. Please ensure the FastAPI server is running on port 8000."
           : "CRITICAL FAILURE: Unable to process diagnostic request. Please check the connection.",
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => {
+        // Check if we already added a streaming message
+        const hasStreamingMessage = prev.some(m => m.id === aiMessageId);
+        if (hasStreamingMessage) {
+          return prev.map(msg =>
+            msg.id === aiMessageId ? errorMessage : msg
+          );
+        }
+        return [...prev, errorMessage];
+      });
     } finally {
       setIsThinking(false);
     }

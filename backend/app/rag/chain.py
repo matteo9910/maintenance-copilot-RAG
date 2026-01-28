@@ -5,8 +5,15 @@ This module provides two RAG modes:
 2. Legacy RAG: Linear chain with single retrieval (fallback)
 
 The mode is controlled by settings.USE_AGENTIC_RAG.
+
+Features:
+- Query Expansion: Automatically reformulates queries for better retrieval
+- Multi-hop retrieval (agentic mode): Follows references across documents
+- Full content extraction for trust layer
+- Streaming responses for reduced latency
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncGenerator
+import json
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.documents import Document
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
@@ -17,6 +24,104 @@ from app.core.config import settings
 from app.rag.llm import get_llm
 from app.rag.vector_store import get_retriever
 from app.rag.agent import query_rag_agent, is_agentic_rag_available
+
+
+# =============================================================================
+# QUERY EXPANSION
+# =============================================================================
+
+QUERY_EXPANSION_PROMPT = """You are a query expansion specialist for a technical maintenance documentation system.
+
+Given a user's question, generate 2-3 alternative search queries that would help find relevant information in maintenance manuals.
+
+Consider:
+- Technical synonyms (e.g., "replace" → "substitute", "change", "swap")
+- Related concepts (e.g., "lubrication" → "oil", "grease", "lubricant intervals")
+- Specific technical terms that might be used in manuals
+- Inverse queries that might find related procedures
+
+Original question: {question}
+
+Return ONLY the alternative queries, one per line, without numbering or explanations.
+Keep each query concise (under 15 words).
+Do not repeat the original question."""
+
+
+async def expand_query(question: str, model_id: Optional[str] = None) -> List[str]:
+    """
+    Expand a user's question into multiple search queries for better retrieval.
+
+    This uses an LLM to generate semantically similar queries that might
+    match different phrasings in the documentation.
+
+    Args:
+        question: The original user question.
+        model_id: Optional LLM model ID.
+
+    Returns:
+        List of expanded queries including the original.
+    """
+    try:
+        llm = get_llm(model_id=model_id)
+
+        prompt = ChatPromptTemplate.from_template(QUERY_EXPANSION_PROMPT)
+        chain = prompt | llm | StrOutputParser()
+
+        result = await chain.ainvoke({"question": question})
+
+        # Parse the expanded queries
+        expanded = [q.strip() for q in result.strip().split('\n') if q.strip()]
+
+        # Always include original question first, then add expanded queries
+        all_queries = [question] + expanded[:3]  # Limit to 3 expansions
+
+        print(f"Query expansion: {question} → {all_queries}")
+        return all_queries
+
+    except Exception as e:
+        print(f"Query expansion failed: {e}, using original query only")
+        return [question]
+
+
+async def retrieve_with_expansion(
+    question: str,
+    model_id: Optional[str] = None,
+    k: int = 4
+) -> List[Document]:
+    """
+    Retrieve documents using query expansion for better coverage.
+
+    Performs retrieval with the original query and expanded variants,
+    then deduplicates and ranks the results.
+
+    Args:
+        question: The user's question.
+        model_id: LLM model for query expansion.
+        k: Number of documents to retrieve per query.
+
+    Returns:
+        Deduplicated list of relevant documents.
+    """
+    retriever = get_retriever(k=k)
+
+    # Get expanded queries
+    queries = await expand_query(question, model_id)
+
+    # Retrieve documents for each query
+    all_docs = []
+    seen_content = set()
+
+    for query in queries:
+        docs = retriever.invoke(query)
+        for doc in docs:
+            # Deduplicate by content hash
+            content_hash = hash(doc.page_content[:500])
+            if content_hash not in seen_content:
+                seen_content.add(content_hash)
+                all_docs.append(doc)
+
+    # Limit total documents to avoid context overflow
+    return all_docs[:k * 2]  # Allow up to 2x the normal limit for expanded queries
 
 
 # System prompt for the Maintenance AI Copilot
@@ -160,16 +265,17 @@ async def _query_rag_agentic(
     )
 
     # Format sources for compatibility with existing frontend
+    # Now includes full content for trust layer (1000-1500 chars)
     formatted_sources = []
     for source in result.get("sources", []):
         formatted_sources.append({
-            "content": "",  # Agent doesn't return full content
+            "content": source.get("content", "")[:1500],  # Full content for trust layer
             "source": source.get("document", "Unknown"),
             "page": source.get("page"),
-            "chapter": None,
-            "section": None,
-            "chunk_index": None,
-            "total_chunks": None,
+            "chapter": source.get("chapter"),
+            "section": source.get("section"),
+            "chunk_index": source.get("chunk_index"),
+            "total_chunks": source.get("total_chunks"),
             "relevance_score": None
         })
 
@@ -188,18 +294,33 @@ async def _query_rag_legacy(
     question: str,
     model_id: Optional[str] = None,
     chat_history: Optional[List[Dict[str, str]]] = None,
-    k: int = 4
+    k: int = 4,
+    use_query_expansion: bool = True
 ) -> Dict[str, Any]:
     """
-    Query using the legacy linear RAG chain (single retrieval).
+    Query using the legacy linear RAG chain with query expansion.
 
-    This is the original implementation that performs one similarity search.
+    This implementation now includes query expansion for better retrieval coverage.
+
+    Args:
+        question: User's question.
+        model_id: LLM model to use.
+        chat_history: Previous conversation history.
+        k: Number of documents to retrieve.
+        use_query_expansion: Whether to use query expansion (default True).
     """
-    retriever = get_retriever(k=k)
     llm = get_llm(model_id=model_id)
+    queries_executed = [question]
 
-    # Retrieve relevant documents
-    docs = retriever.invoke(question)
+    # Retrieve documents - with or without query expansion
+    if use_query_expansion:
+        docs = await retrieve_with_expansion(question, model_id, k)
+        # Track expanded queries for metadata
+        expanded_queries = await expand_query(question, model_id)
+        queries_executed = expanded_queries
+    else:
+        retriever = get_retriever(k=k)
+        docs = retriever.invoke(question)
 
     # Format context
     context = format_docs(docs)
@@ -241,8 +362,114 @@ async def _query_rag_legacy(
         "answer": answer,
         "sources": sources,
         "metadata": {
-            "mode": "legacy",
+            "mode": "legacy_with_expansion" if use_query_expansion else "legacy",
             "iterations": 1,
-            "queries_executed": [question]
+            "queries_executed": queries_executed
         }
     }
+
+
+# =============================================================================
+# STREAMING RAG
+# =============================================================================
+
+async def query_rag_stream(
+    question: str,
+    model_id: Optional[str] = None,
+    chat_history: Optional[List[Dict[str, str]]] = None,
+    k: int = 4,
+    use_query_expansion: bool = True
+) -> AsyncGenerator[str, None]:
+    """
+    Stream RAG responses for reduced perceived latency.
+
+    This function yields Server-Sent Events (SSE) formatted messages:
+    - "event: token" + "data: <token>" for each generated token
+    - "event: sources" + "data: <json>" for source documents at the end
+    - "event: metadata" + "data: <json>" for RAG metadata at the end
+    - "event: done" + "data: [DONE]" when streaming is complete
+
+    Args:
+        question: User's question.
+        model_id: LLM model to use.
+        chat_history: Previous conversation history.
+        k: Number of documents to retrieve.
+        use_query_expansion: Whether to use query expansion.
+
+    Yields:
+        SSE formatted strings.
+    """
+    llm = get_llm(model_id=model_id)
+    queries_executed = [question]
+
+    # Retrieve documents - with or without query expansion
+    if use_query_expansion:
+        docs = await retrieve_with_expansion(question, model_id, k)
+        expanded_queries = await expand_query(question, model_id)
+        queries_executed = expanded_queries
+    else:
+        retriever = get_retriever(k=k)
+        docs = retriever.invoke(question)
+
+    # Format context
+    context = format_docs(docs)
+
+    # Format history
+    history_messages = format_chat_history(chat_history or [])
+
+    # Create prompt
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="chat_history", optional=True),
+        ("human", "{question}")
+    ])
+
+    # Prepare chain for streaming
+    chain = prompt | llm
+
+    # Stream tokens
+    full_answer = ""
+    async for chunk in chain.astream({
+        "context": context,
+        "question": question,
+        "chat_history": history_messages
+    }):
+        # Extract token from chunk
+        if hasattr(chunk, 'content'):
+            token = chunk.content
+        else:
+            token = str(chunk)
+
+        if token:
+            full_answer += token
+            # Yield SSE formatted token
+            yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+
+    # Format source documents for response
+    sources = [
+        {
+            "content": doc.page_content[:1500],
+            "source": doc.metadata.get("source", "Unknown"),
+            "page": doc.metadata.get("page"),
+            "chapter": doc.metadata.get("chapter"),
+            "section": doc.metadata.get("section"),
+            "chunk_index": doc.metadata.get("chunk_index"),
+            "total_chunks": doc.metadata.get("total_chunks"),
+            "relevance_score": doc.metadata.get("score")
+        }
+        for doc in docs
+    ]
+
+    # Yield sources
+    yield f"event: sources\ndata: {json.dumps(sources)}\n\n"
+
+    # Yield metadata
+    metadata = {
+        "mode": "streaming_with_expansion" if use_query_expansion else "streaming",
+        "iterations": 1,
+        "queries_executed": queries_executed
+    }
+    yield f"event: metadata\ndata: {json.dumps(metadata)}\n\n"
+
+    # Signal completion
+    yield f"event: done\ndata: [DONE]\n\n"
