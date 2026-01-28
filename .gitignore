@@ -58,3 +58,15 @@ htmlcov/
 tmp/
 temp/
 *.tmp
+
+# Windows artifacts
+nul
+
+# Scripts with credentials
+start_server.bat
+
+# Claude Code
+.claude/
+
+# Test outputs
+response.json
