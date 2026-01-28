@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Loader2, Cpu, FileText, PanelLeftOpen, ChevronDown, Moon, Sun, ShieldCheck } from 'lucide-react';
+import { Send, Paperclip, Loader2, Cpu, FileText, PanelLeftOpen, ChevronDown, Moon, Sun, ShieldCheck, Search } from 'lucide-react';
 import { Message, Reference } from '../types';
 import { AI_MODELS } from '../constants';
+import { StatusUpdate } from '../services/backendService';
 
 interface ChatAreaProps {
   messages: Message[];
   isThinking: boolean;
+  processingStatus?: StatusUpdate | null;
   selectedModel: string;
   onSelectModel: (id: string) => void;
   onSendMessage: (text: string, image?: File) => void;
@@ -42,6 +44,7 @@ const stripMarkdown = (text: string): string => {
 const ChatArea: React.FC<ChatAreaProps> = ({
   messages,
   isThinking,
+  processingStatus,
   selectedModel,
   onSelectModel,
   onSendMessage,
@@ -245,12 +248,32 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               </div>
             ))}
 
-            {isThinking && (
-              <div className="flex gap-4 justify-start items-center">
-                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-industrial-accent to-orange-400 flex items-center justify-center shadow-md">
+            {(isThinking || processingStatus) && (
+              <div className="flex gap-4 justify-start">
+                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-industrial-accent to-orange-400 flex items-center justify-center shadow-md flex-shrink-0">
                      <Loader2 className="w-4 h-4 text-white animate-spin" />
                  </div>
-                 <span className="text-xs text-gray-400 font-medium animate-pulse">Consulting technical data...</span>
+                 <div className="flex flex-col gap-1">
+                   {processingStatus ? (
+                     <div className="flex items-center gap-2 bg-white/50 dark:bg-industrial-800/50 px-3 py-2 rounded-lg border border-gray-200/50 dark:border-gray-700/50">
+                       {processingStatus.step === 'searching' ? (
+                         <Search className="w-3.5 h-3.5 text-industrial-accent animate-pulse" />
+                       ) : (
+                         <Loader2 className="w-3.5 h-3.5 text-industrial-accent animate-spin" />
+                       )}
+                       <span className="text-xs text-gray-600 dark:text-gray-300 font-medium">
+                         {processingStatus.message}
+                       </span>
+                       {processingStatus.index && processingStatus.total && (
+                         <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-1">
+                           ({processingStatus.index}/{processingStatus.total})
+                         </span>
+                       )}
+                     </div>
+                   ) : (
+                     <span className="text-xs text-gray-400 font-medium animate-pulse">Consulting technical data...</span>
+                   )}
+                 </div>
               </div>
             )}
           </>

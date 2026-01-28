@@ -384,6 +384,7 @@ async def query_rag_stream(
     Stream RAG responses for reduced perceived latency.
 
     This function yields Server-Sent Events (SSE) formatted messages:
+    - "event: status" + "data: <json>" for processing status updates
     - "event: token" + "data: <token>" for each generated token
     - "event: sources" + "data: <json>" for source documents at the end
     - "event: metadata" + "data: <json>" for RAG metadata at the end
@@ -402,14 +403,45 @@ async def query_rag_stream(
     llm = get_llm(model_id=model_id)
     queries_executed = [question]
 
+    # Emit initial status
+    yield f"event: status\ndata: {json.dumps({'step': 'analyzing', 'message': 'Analyzing your question...'})}\n\n"
+
     # Retrieve documents - with or without query expansion
     if use_query_expansion:
-        docs = await retrieve_with_expansion(question, model_id, k)
+        # Emit status for query expansion
+        yield f"event: status\ndata: {json.dumps({'step': 'expanding', 'message': 'Expanding search queries...'})}\n\n"
+
         expanded_queries = await expand_query(question, model_id)
         queries_executed = expanded_queries
+
+        # Emit status for each search query
+        retriever = get_retriever(k=k)
+        all_docs = []
+        seen_content = set()
+
+        for i, query in enumerate(expanded_queries, 1):
+            # Emit search status
+            short_query = query[:50] + "..." if len(query) > 50 else query
+            yield f"event: status\ndata: {json.dumps({'step': 'searching', 'message': f'Search {i}: {short_query}', 'query': query, 'index': i, 'total': len(expanded_queries)})}\n\n"
+
+            docs = retriever.invoke(query)
+            for doc in docs:
+                content_hash = hash(doc.page_content[:500])
+                if content_hash not in seen_content:
+                    seen_content.add(content_hash)
+                    all_docs.append(doc)
+
+        docs = all_docs[:k * 2]
+
+        # Emit status for document processing
+        yield f"event: status\ndata: {json.dumps({'step': 'processing', 'message': f'Found {len(docs)} relevant documents'})}\n\n"
     else:
+        yield f"event: status\ndata: {json.dumps({'step': 'searching', 'message': 'Searching documentation...'})}\n\n"
         retriever = get_retriever(k=k)
         docs = retriever.invoke(question)
+
+    # Emit status for generating response
+    yield f"event: status\ndata: {json.dumps({'step': 'generating', 'message': 'Generating response...'})}\n\n"
 
     # Format context
     context = format_docs(docs)

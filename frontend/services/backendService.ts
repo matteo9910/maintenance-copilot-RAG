@@ -33,11 +33,21 @@ interface RAGMetadata {
   queries_executed: string[];
 }
 
+// Status update during processing
+export interface StatusUpdate {
+  step: 'analyzing' | 'expanding' | 'searching' | 'processing' | 'generating';
+  message: string;
+  query?: string;
+  index?: number;
+  total?: number;
+}
+
 // Callbacks for streaming
 interface StreamCallbacks {
   onToken: (token: string) => void;
   onSources: (sources: SourceDocument[]) => void;
   onMetadata: (metadata: RAGMetadata) => void;
+  onStatus?: (status: StatusUpdate) => void;
   onDone: () => void;
   onError: (error: Error) => void;
 }
@@ -183,7 +193,10 @@ export const sendMessageStreaming = async (
           const data = line.slice(6);
 
           try {
-            if (currentEvent === 'token') {
+            if (currentEvent === 'status') {
+              const status = JSON.parse(data);
+              callbacks.onStatus?.(status);
+            } else if (currentEvent === 'token') {
               const parsed = JSON.parse(data);
               callbacks.onToken(parsed.token);
             } else if (currentEvent === 'sources') {

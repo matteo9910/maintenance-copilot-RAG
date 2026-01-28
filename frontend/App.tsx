@@ -4,7 +4,7 @@ import ChatArea from './components/ChatArea';
 import ContextPanel from './components/ContextPanel';
 import { Message, Reference, ChatSession } from './types';
 import { AI_MODELS } from './constants';
-import { sendMessageToBackend, sendMessageStreaming, checkHealth } from './services/backendService';
+import { sendMessageToBackend, sendMessageStreaming, checkHealth, StatusUpdate } from './services/backendService';
 
 // Helper to extract title from first query (max 40 chars)
 const extractTitle = (query: string): string => {
@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState(AI_MODELS[0].id);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isThinking, setIsThinking] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<StatusUpdate | null>(null);
   const [activeReference, setActiveReference] = useState<Reference | null>(null);
   const [isContextPanelOpen, setIsContextPanelOpen] = useState(false);
   const [backendStatus, setBackendStatus] = useState<'online' | 'offline' | 'checking'>('checking');
@@ -117,6 +118,7 @@ const App: React.FC = () => {
     }
 
     setIsThinking(true);
+    setProcessingStatus(null);
 
     // Create AI message ID for streaming updates
     const aiMessageId = (Date.now() + 1).toString();
@@ -191,7 +193,12 @@ const App: React.FC = () => {
           selectedModel,
           getMessageHistory(),
           {
+            onStatus: (status) => {
+              setProcessingStatus(status);
+            },
             onToken: (token) => {
+              // Clear status when tokens start arriving
+              setProcessingStatus(null);
               streamedContent += token;
               // Update the message content as tokens arrive
               setMessages(prev =>
@@ -222,6 +229,8 @@ const App: React.FC = () => {
               console.log('RAG Metadata:', _metadata);
             },
             onDone: () => {
+              // Clear processing status
+              setProcessingStatus(null);
               // Finalize the message with references
               setMessages(prev =>
                 prev.map(msg =>
@@ -259,6 +268,7 @@ const App: React.FC = () => {
             },
             onError: (error) => {
               console.error('Streaming error:', error);
+              setProcessingStatus(null);
               setMessages(prev =>
                 prev.map(msg =>
                   msg.id === aiMessageId
@@ -332,6 +342,7 @@ const App: React.FC = () => {
         <ChatArea
           messages={messages}
           isThinking={isThinking}
+          processingStatus={processingStatus}
           selectedModel={selectedModel}
           onSelectModel={setSelectedModel}
           onSendMessage={handleSendMessage}
