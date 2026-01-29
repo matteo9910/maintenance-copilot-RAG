@@ -336,9 +336,6 @@ const ChatArea: React.FC<ChatAreaProps> = ({
               {isThinking ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5 ml-0.5" />}
             </button>
           </div>
-          <div className="mt-2 text-center text-[10px] text-gray-400 dark:text-gray-600">
-            AI Copilot uses AI. Check for mistakes.
-          </div>
         </div>
       </div>
     </main>
