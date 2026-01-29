@@ -383,6 +383,9 @@ async def query_rag_stream(
     """
     Stream RAG responses for reduced perceived latency.
 
+    Uses Agentic RAG (multi-hop retrieval via LangGraph) when enabled,
+    falling back to legacy single-pass retrieval with query expansion.
+
     This function yields Server-Sent Events (SSE) formatted messages:
     - "event: status" + "data: <json>" for processing status updates
     - "event: token" + "data: <token>" for each generated token
@@ -395,7 +398,7 @@ async def query_rag_stream(
         model_id: LLM model to use.
         chat_history: Previous conversation history.
         k: Number of documents to retrieve.
-        use_query_expansion: Whether to use query expansion.
+        use_query_expansion: Whether to use query expansion (legacy mode).
 
     Yields:
         SSE formatted strings.
@@ -406,26 +409,67 @@ async def query_rag_stream(
     # Emit initial status
     yield f"event: status\ndata: {json.dumps({'step': 'analyzing', 'message': 'Analyzing your question...'})}\n\n"
 
-    # Retrieve documents - with or without query expansion
-    if use_query_expansion:
-        # Emit status for query expansion
+    # Check if we should use agentic multi-hop retrieval
+    should_use_agent = settings.USE_AGENTIC_RAG and is_agentic_rag_available()
+
+    if should_use_agent:
+        # =============================================================
+        # AGENTIC RAG: Multi-hop retrieval with LangGraph
+        # The agent follows references across pages for complete answers
+        # =============================================================
+        from app.rag.agent import run_agentic_retrieval_streaming
+
+        print("Streaming: Using Agentic RAG (multi-hop retrieval)")
+        yield f"event: status\ndata: {json.dumps({'step': 'expanding', 'message': 'Planning multi-hop retrieval...'})}\n\n"
+
+        agent_docs = []
+        async for event in run_agentic_retrieval_streaming(question, model_id, chat_history):
+            if event['type'] == 'status':
+                yield f"event: status\ndata: {json.dumps({'step': event['step'], 'message': event['message'], 'query': event.get('query', ''), 'index': event.get('index')})}\n\n"
+            elif event['type'] == 'result':
+                agent_docs = event['docs']
+                queries_executed = event['queries_executed']
+
+        # Convert agent docs to Document objects for format_docs
+        docs = []
+        for d in agent_docs:
+            doc = Document(
+                page_content=d.get('content', ''),
+                metadata={
+                    'source': d.get('source', 'Unknown'),
+                    'page': d.get('page'),
+                    'chapter': d.get('chapter'),
+                    'section': d.get('section'),
+                    'chunk_index': d.get('chunk_index'),
+                    'total_chunks': d.get('total_chunks'),
+                }
+            )
+            docs.append(doc)
+
+        yield f"event: status\ndata: {json.dumps({'step': 'processing', 'message': f'Retrieved {len(docs)} documents across {len(queries_executed)} searches'})}\n\n"
+
+        mode = "agentic_streaming"
+
+    elif use_query_expansion:
+        # =============================================================
+        # LEGACY RAG: Single-pass retrieval with query expansion
+        # =============================================================
+        print("Streaming: Using Legacy RAG (query expansion)")
         yield f"event: status\ndata: {json.dumps({'step': 'expanding', 'message': 'Expanding search queries...'})}\n\n"
 
         expanded_queries = await expand_query(question, model_id)
         queries_executed = expanded_queries
 
-        # Emit status for each search query
         retriever = get_retriever(k=k)
         all_docs = []
         seen_content = set()
 
         for i, query in enumerate(expanded_queries, 1):
-            # Emit search status
             short_query = query[:50] + "..." if len(query) > 50 else query
             yield f"event: status\ndata: {json.dumps({'step': 'searching', 'message': f'Search {i}: {short_query}', 'query': query, 'index': i, 'total': len(expanded_queries)})}\n\n"
 
-            docs = retriever.invoke(query)
-            for doc in docs:
+            retriever_docs = retriever.invoke(query)
+            for doc in retriever_docs:
                 content_hash = hash(doc.page_content[:500])
                 if content_hash not in seen_content:
                     seen_content.add(content_hash)
@@ -433,17 +477,27 @@ async def query_rag_stream(
 
         docs = all_docs[:k * 2]
 
-        # Emit status for document processing
         yield f"event: status\ndata: {json.dumps({'step': 'processing', 'message': f'Found {len(docs)} relevant documents'})}\n\n"
+
+        mode = "streaming_with_expansion"
+
     else:
+        # =============================================================
+        # BASIC RAG: Simple single-query retrieval
+        # =============================================================
+        print("Streaming: Using Basic RAG (no expansion)")
         yield f"event: status\ndata: {json.dumps({'step': 'searching', 'message': 'Searching documentation...'})}\n\n"
         retriever = get_retriever(k=k)
         docs = retriever.invoke(question)
 
-    # Emit status for generating response
+        mode = "streaming"
+
+    # =============================================================
+    # GENERATE STREAMED RESPONSE
+    # =============================================================
     yield f"event: status\ndata: {json.dumps({'step': 'generating', 'message': 'Generating response...'})}\n\n"
 
-    # Format context
+    # Format context from retrieved documents
     context = format_docs(docs)
 
     # Format history
@@ -497,8 +551,8 @@ async def query_rag_stream(
 
     # Yield metadata
     metadata = {
-        "mode": "streaming_with_expansion" if use_query_expansion else "streaming",
-        "iterations": 1,
+        "mode": mode,
+        "iterations": len(queries_executed),
         "queries_executed": queries_executed
     }
     yield f"event: metadata\ndata: {json.dumps(metadata)}\n\n"

@@ -11,7 +11,7 @@ Key Features:
 - Configurable iteration limit: Safety net for maximum agent iterations
 - Transparent reasoning: Each step is logged for debugging and trust
 """
-from typing import TypedDict, Annotated, List, Dict, Any, Optional, Sequence
+from typing import TypedDict, Annotated, List, Dict, Any, Optional, Sequence, AsyncGenerator
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -165,31 +165,46 @@ Help users with maintenance questions by searching the documentation and providi
 
 1. **ALWAYS Search First**: Before answering any maintenance question, use the search_maintenance_docs tool to find relevant information.
 
-2. **Follow References**: If search results mention:
+2. **Follow ALL References - THIS IS CRITICAL**: When search results mention ANY of the following:
    - "See Table X" or "Refer to Table X"
-   - "See Page X" or "Refer to Page X"
+   - "See Page X" or "Refer to Page X" or any page number reference
    - "Note X" or "See Note X"
    - "Section X" or "Chapter X"
+   - "For details, see..." or "Refer to..."
+   - Blank or incomplete entries that reference another location for specifications
+   - Any mention of detailed specifications being elsewhere in the manual
 
-   You MUST perform an additional search to find that referenced content. Do NOT guess or assume what the reference contains.
+   You MUST perform an additional search to find that referenced content.
+   Do NOT guess or assume what the reference contains.
+   NEVER tell the user "refer to page X for details" or "see page X" - YOU must search for that content yourself and include it in your answer.
 
-3. **Multi-hop Reasoning**: Complex questions often require multiple searches. For example:
-   - First search: Find the maintenance schedule
-   - Second search: Find the referenced lubrication specifications
-   - Third search: Find the specific procedure details
+3. **Be Thorough - Multiple Aspects**: Complex maintenance questions often involve information spread across multiple pages:
+   - The maintenance schedule table (e.g., what to do at 300 hours)
+   - The detailed procedure pages (e.g., specific lubrication points, intervals, grease types)
+   - Related notes, warnings, and specifications
+   - Component-specific requirements (e.g., each axis may have different intervals)
 
-4. **When to Stop Searching**:
-   - You have found all referenced information
+   Always search for ALL aspects of the question, not just the most obvious one.
+   If a question asks about lubrication, you must find the SPECIFIC lubrication details (intervals, grease types, quantities) - not just whether lubrication is required.
+
+4. **Multi-hop Reasoning**: Complex questions often require multiple searches. For example:
+   - First search: Find the maintenance schedule table
+   - Second search: Find the referenced lubrication specifications page
+   - Third search: Find specific procedure details or notes referenced
+
+5. **When to Stop Searching**:
+   - You have found ALL referenced information (no unresolved references remain)
    - You have performed the same search query twice (avoid loops)
-   - You have gathered enough information to provide a complete answer
+   - You have gathered specific, detailed information for every aspect of the question
 
-5. **Answer Format**:
+6. **Answer Format**:
    - Provide clear, step-by-step instructions when applicable
+   - Include specific numbers: intervals (hours, km), quantities, part numbers
    - Always cite your sources (document name and page number)
    - If information is incomplete or contradictory, acknowledge this
    - Use technical terminology accurately
 
-6. **Language**: ALWAYS respond in English, regardless of the document language.
+7. **Language**: ALWAYS respond in English, regardless of the document language.
 
 ## Example Reasoning
 
@@ -197,11 +212,14 @@ User: "At 300 operating hours, do I need to lubricate the components?"
 
 Your thought process:
 1. Search for "300 hours maintenance schedule"
-2. Find: "Lubrication: As appropriate (Note 4)"
-3. Recognize: Need to find Note 4 content
-4. Search for "Note 4 lubrication interval" or "lubrication specifications table"
+2. Find: "Lubrication: As appropriate (Note 4)" and "See page 131 for lubrication details"
+3. Recognize: Need to find the lubrication specifications page
+4. Search for "lubrication specifications" or "lubrication interval grease"
 5. Find: "Table 5-10: J1 axis = 24,000 Hr, Shaft = Every 2,000km movement"
-6. Now provide complete answer with all details
+6. Now provide complete answer with ALL specific details including intervals per component
+
+WRONG approach: Answering "lubrication is not required at 300 hours, see page 131 for details"
+RIGHT approach: Searching for page 131 content, finding the specific intervals, and including them in the answer
 
 Remember: Incomplete information leads to incorrect maintenance, which can cause equipment damage or safety hazards. Always be thorough."""
 
@@ -483,3 +501,97 @@ def is_agentic_rag_available() -> bool:
     except ImportError:
         print("Warning: langgraph package not installed")
         return False
+
+
+# =============================================================================
+# STREAMING AGENTIC RETRIEVAL
+# =============================================================================
+
+async def run_agentic_retrieval_streaming(
+    question: str,
+    model_id: Optional[str] = None,
+    chat_history: Optional[List[Dict[str, str]]] = None
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """
+    Run agentic multi-hop retrieval, yielding status updates for each search.
+
+    This function runs the LangGraph agent step-by-step and emits status
+    events as the agent performs each retrieval hop. It enables the streaming
+    endpoint to use multi-hop retrieval while providing real-time feedback.
+
+    Yields dicts with:
+    - {'type': 'status', 'step': ..., 'message': ..., 'query': ..., 'index': ...}
+    - {'type': 'result', 'docs': [...], 'queries_executed': [...], 'iterations': int}
+    """
+    clear_retrieved_documents()
+
+    # Build messages
+    messages = []
+    if chat_history:
+        for msg in chat_history:
+            if msg.get("role") == "user":
+                messages.append(HumanMessage(content=msg.get("content", "")))
+            elif msg.get("role") == "assistant":
+                messages.append(AIMessage(content=msg.get("content", "")))
+    messages.append(HumanMessage(content=question))
+
+    initial_state: AgentState = {
+        "messages": messages,
+        "original_question": question,
+        "retrieved_documents": [],
+        "executed_queries": [],
+        "iteration_count": 0,
+        "final_answer": None
+    }
+
+    agent = create_rag_agent(model_id)
+
+    seen_queries = set()
+    search_count = 0
+    iteration_count = 0
+
+    try:
+        # Stream agent execution, intercepting tool calls for status updates
+        async for event in agent.astream(initial_state, stream_mode="updates"):
+            for node_name, state_update in event.items():
+                if node_name == "agent":
+                    # Check if agent is making tool calls (new searches)
+                    new_messages = state_update.get("messages", [])
+                    for msg in new_messages:
+                        if hasattr(msg, "tool_calls") and msg.tool_calls:
+                            for tc in msg.tool_calls:
+                                if tc.get("name") == "search_maintenance_docs":
+                                    query = tc.get("args", {}).get("query", "")
+                                    if query and query not in seen_queries:
+                                        seen_queries.add(query)
+                                        search_count += 1
+                                        short_q = query[:60] + "..." if len(query) > 60 else query
+                                        yield {
+                                            'type': 'status',
+                                            'step': 'searching',
+                                            'message': f'Search {search_count}: {short_q}',
+                                            'query': query,
+                                            'index': search_count
+                                        }
+                elif node_name == "update_state":
+                    iteration_count = state_update.get("iteration_count", iteration_count)
+
+    except Exception as e:
+        print(f"Agentic retrieval error: {e}")
+        yield {
+            'type': 'status',
+            'step': 'processing',
+            'message': f'Agent encountered issue, using gathered documents...'
+        }
+
+    # Get all retrieved documents
+    retrieved_docs = get_retrieved_documents()
+
+    print(f"Agentic retrieval complete: {search_count} searches, {len(retrieved_docs)} documents, {iteration_count} iterations")
+
+    yield {
+        'type': 'result',
+        'docs': retrieved_docs,
+        'queries_executed': list(seen_queries),
+        'iterations': iteration_count
+    }
