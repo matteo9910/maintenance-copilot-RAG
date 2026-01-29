@@ -174,18 +174,9 @@ const App: React.FC = () => {
         }
       } else {
         // 3. Use streaming for text-only queries (reduced latency)
+        // Don't create AI message yet - wait for first token to avoid double spinner
 
-        // Create empty AI message that will be updated with streaming tokens
-        const initialAiMessage: Message = {
-          id: aiMessageId,
-          role: 'model',
-          content: '',
-          timestamp: new Date(),
-          isThinking: true
-        };
-
-        setMessages(prev => [...prev, initialAiMessage]);
-        setIsThinking(false); // Turn off thinking indicator since we show streaming
+        let messageCreated = false;
 
         // Stream the response
         await sendMessageStreaming(
@@ -199,15 +190,29 @@ const App: React.FC = () => {
             onToken: (token) => {
               // Clear status when tokens start arriving
               setProcessingStatus(null);
+              setIsThinking(false);
               streamedContent += token;
-              // Update the message content as tokens arrive
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiMessageId
-                    ? { ...msg, content: streamedContent }
-                    : msg
-                )
-              );
+
+              // Create the message on first token
+              if (!messageCreated) {
+                const newAiMessage: Message = {
+                  id: aiMessageId,
+                  role: 'model',
+                  content: streamedContent,
+                  timestamp: new Date(),
+                };
+                setMessages(prev => [...prev, newAiMessage]);
+                messageCreated = true;
+              } else {
+                // Update the message content as tokens arrive
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiMessageId
+                      ? { ...msg, content: streamedContent }
+                      : msg
+                  )
+                );
+              }
             },
             onSources: (sources) => {
               // Convert sources to references
@@ -269,17 +274,31 @@ const App: React.FC = () => {
             onError: (error) => {
               console.error('Streaming error:', error);
               setProcessingStatus(null);
-              setMessages(prev =>
-                prev.map(msg =>
-                  msg.id === aiMessageId
-                    ? {
-                        ...msg,
-                        content: "CRITICAL FAILURE: Unable to process streaming response. Please try again.",
-                        isThinking: false
-                      }
-                    : msg
-                )
-              );
+
+              if (!messageCreated) {
+                // Create error message if not created yet
+                const errorMsg: Message = {
+                  id: aiMessageId,
+                  role: 'model',
+                  content: "CRITICAL FAILURE: Unable to process streaming response. Please try again.",
+                  timestamp: new Date(),
+                };
+                setMessages(prev => [...prev, errorMsg]);
+                messageCreated = true;
+              } else {
+                // Update existing message
+                setMessages(prev =>
+                  prev.map(msg =>
+                    msg.id === aiMessageId
+                      ? {
+                          ...msg,
+                          content: "CRITICAL FAILURE: Unable to process streaming response. Please try again.",
+                          isThinking: false
+                        }
+                      : msg
+                  )
+                );
+              }
             }
           }
         );
@@ -296,9 +315,9 @@ const App: React.FC = () => {
         timestamp: new Date(),
       };
       setMessages(prev => {
-        // Check if we already added a streaming message
-        const hasStreamingMessage = prev.some(m => m.id === aiMessageId);
-        if (hasStreamingMessage) {
+        // Check if we already added a message
+        const hasMessage = prev.some(m => m.id === aiMessageId);
+        if (hasMessage) {
           return prev.map(msg =>
             msg.id === aiMessageId ? errorMessage : msg
           );
@@ -307,6 +326,7 @@ const App: React.FC = () => {
       });
     } finally {
       setIsThinking(false);
+      setProcessingStatus(null);
     }
   };
 
