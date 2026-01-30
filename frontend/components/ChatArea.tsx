@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Send, Paperclip, Loader2, Cpu, FileText, PanelLeftOpen, ChevronDown, Moon, Sun, ShieldCheck, Search } from 'lucide-react';
 import { Message, Reference } from '../types';
 import { AI_MODELS } from '../constants';
@@ -19,26 +21,66 @@ interface ChatAreaProps {
   onOpenTrustLayer?: (ref: Reference) => void;
 }
 
-// Helper function to strip markdown formatting from text
-const stripMarkdown = (text: string): string => {
-  return text
-    // Remove headers (## Header)
-    .replace(/^#{1,6}\s+/gm, '')
-    // Remove bold (**text** or __text__)
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/__([^_]+)__/g, '$1')
-    // Remove italic (*text* or _text_)
-    .replace(/\*([^*]+)\*/g, '$1')
-    .replace(/_([^_]+)_/g, '$1')
-    // Remove inline code (`code`)
-    .replace(/`([^`]+)`/g, '$1')
-    // Remove links [text](url) -> text
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    // Remove horizontal rules
-    .replace(/^[-*_]{3,}\s*$/gm, '')
-    // Clean up extra whitespace
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+// Custom components for ReactMarkdown to style tables and other elements
+const markdownComponents = {
+  table: ({ children, ...props }: any) => (
+    <div className="overflow-x-auto my-4">
+      <table className="min-w-full border-collapse border border-gray-300 dark:border-gray-600 text-sm" {...props}>
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children, ...props }: any) => (
+    <thead className="bg-gray-100 dark:bg-industrial-800" {...props}>
+      {children}
+    </thead>
+  ),
+  tbody: ({ children, ...props }: any) => (
+    <tbody className="divide-y divide-gray-200 dark:divide-gray-700" {...props}>
+      {children}
+    </tbody>
+  ),
+  tr: ({ children, ...props }: any) => (
+    <tr className="hover:bg-gray-50 dark:hover:bg-industrial-800/50 transition-colors" {...props}>
+      {children}
+    </tr>
+  ),
+  th: ({ children, ...props }: any) => (
+    <th className="border border-gray-300 dark:border-gray-600 px-4 py-2.5 text-left font-semibold text-gray-900 dark:text-gray-100" {...props}>
+      {children}
+    </th>
+  ),
+  td: ({ children, ...props }: any) => (
+    <td className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-gray-700 dark:text-gray-300" {...props}>
+      {children}
+    </td>
+  ),
+  h1: ({ children, ...props }: any) => (
+    <h1 className="text-xl font-bold mt-4 mb-2 text-gray-900 dark:text-gray-100" {...props}>{children}</h1>
+  ),
+  h2: ({ children, ...props }: any) => (
+    <h2 className="text-lg font-bold mt-3 mb-2 text-gray-900 dark:text-gray-100" {...props}>{children}</h2>
+  ),
+  h3: ({ children, ...props }: any) => (
+    <h3 className="text-base font-semibold mt-3 mb-1 text-gray-900 dark:text-gray-100" {...props}>{children}</h3>
+  ),
+  p: ({ children, ...props }: any) => (
+    <p className="mb-2 last:mb-0" {...props}>{children}</p>
+  ),
+  ul: ({ children, ...props }: any) => (
+    <ul className="list-disc list-inside mb-2 space-y-1" {...props}>{children}</ul>
+  ),
+  ol: ({ children, ...props }: any) => (
+    <ol className="list-decimal list-inside mb-2 space-y-1" {...props}>{children}</ol>
+  ),
+  strong: ({ children, ...props }: any) => (
+    <strong className="font-semibold text-gray-900 dark:text-gray-100" {...props}>{children}</strong>
+  ),
+  code: ({ children, inline, ...props }: any) => (
+    inline
+      ? <code className="bg-gray-100 dark:bg-industrial-800 px-1.5 py-0.5 rounded text-sm font-mono text-industrial-accent" {...props}>{children}</code>
+      : <code className="block bg-gray-100 dark:bg-industrial-800 p-3 rounded-lg text-sm font-mono overflow-x-auto my-2" {...props}>{children}</code>
+  ),
 };
 
 const ChatArea: React.FC<ChatAreaProps> = ({
@@ -201,10 +243,10 @@ const ChatArea: React.FC<ChatAreaProps> = ({
 
                 <div className={`max-w-[85%] sm:max-w-[75%]`}>
                   {/* Message Bubble */}
-                  <div 
-                    className={`px-5 py-3.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap shadow-sm ${
-                      msg.role === 'user' 
-                        ? 'bg-white dark:bg-industrial-800 border border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-100 rounded-tr-sm' 
+                  <div
+                    className={`px-5 py-3.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                      msg.role === 'user'
+                        ? 'bg-white dark:bg-industrial-800 border border-gray-100 dark:border-gray-700 text-gray-800 dark:text-gray-100 rounded-tr-sm whitespace-pre-wrap'
                         : 'bg-white dark:bg-transparent text-gray-800 dark:text-gray-200'
                     }`}
                   >
@@ -215,7 +257,13 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                       </div>
                     ))}
 
-                    <div className="font-sans">{msg.role === 'model' ? stripMarkdown(msg.content) : msg.content}</div>
+                    <div className="font-sans">
+                      {msg.role === 'model' ? (
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                          {msg.content}
+                        </ReactMarkdown>
+                      ) : msg.content}
+                    </div>
 
                     {/* Citations */}
                     {msg.references && msg.references.length > 0 && (

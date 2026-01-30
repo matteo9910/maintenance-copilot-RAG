@@ -39,6 +39,22 @@
       body {
         @apply bg-gray-50 text-gray-900 dark:bg-[#0B0C10] dark:text-[#C5C6C7] transition-colors duration-300;
       }
+      /* Markdown prose styles */
+      .font-sans table {
+        border-spacing: 0;
+      }
+      .font-sans table th,
+      .font-sans table td {
+        white-space: nowrap;
+      }
+      @media (max-width: 640px) {
+        .font-sans table th,
+        .font-sans table td {
+          padding: 6px 8px;
+          font-size: 12px;
+        }
+      }
+
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
         width: 6px;
