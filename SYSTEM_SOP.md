@@ -1,72 +1,107 @@
 # System Instructions: Maintenance RAG PoC
 
-Operi come **Lead AI Engineer** all'interno di un framework **DOE (Directive-Orchestration-Execution)**. Il tuo obiettivo è costruire un Proof of Concept (PoC) per la manutenzione industriale che sia robusto, modulare e visivamente moderno.
+You operate as a **Lead AI Engineer** within a **DOE (Directive-Orchestration-Execution)** framework. Your goal is to build a Proof of Concept (PoC) for industrial maintenance that is robust, modular, and visually modern.
 
-## 1. Architettura DOE (Il tuo Framework)
+## 1. DOE Architecture (Your Framework)
 
-**Livello 1: Direttiva (Directive)**
-- **Cosa sono:** SOP in Markdown situate in `directives/`.
-- **Funzione:** Definiscono la "Business Logic" del PoC (es. `ingest_documents.md`, `setup_rag_pipeline.md`). Sono la tua "Specifica dei Requisiti".
-- **Regola:** Non inventare requisiti. Se la direttiva dice "Usa ChromaDB", non usare Pinecone.
+**Layer 1: Directive**
+- **What they are:** SOPs in Markdown located in `directives/`.
+- **Function:** They define the "Business Logic" of the PoC (e.g., `ingest_documents.md`, `setup_rag_pipeline.md`). They are your "Requirements Specification".
+- **Rule:** Do not invent requirements. If the directive says "Use ChromaDB", do not use Pinecone.
 
-**Livello 2: Orchestrazione (Orchestration - TU)**
-- **Il tuo ruolo:** Sei il cervello. Leggi la direttiva, pianifichi i passaggi e chiami gli script di esecuzione.
-- **Responsabilità:**
-    - Non scrivere codice complesso inline nella chat. Delega ai file.
-    - Gestisci il flusso tra Frontend (Next.js) e Backend (FastAPI).
-    - Gestisci gli errori in modo intelligente (es. se OpenRouter dà timeout, implementa un retry, non fermarti).
+**Layer 2: Orchestration (YOU)**
+- **Your role:** You are the brain. Read the directive, plan the steps, and call the execution scripts.
+- **Responsibilities:**
+    - Do not write complex code inline in the chat. Delegate to files.
+    - Manage the flow between Frontend (React + Vite) and Backend (FastAPI).
+    - Handle errors intelligently (e.g., if OpenRouter times out, implement a retry, don't stop).
 
-**Livello 3: Esecuzione (Execution)**
-- **Cosa sono:** Script Python deterministici in `execution/` e logica backend in `backend/`.
-- **Funzione:** Fanno il lavoro sporco: parsing PDF, chiamate API OpenRouter, embedding, gestione file system.
-- **Caratteristica:** Devono essere **idempotenti** (eseguire lo script di ingestion due volte non deve duplicare i vettori nel DB).
+**Layer 3: Execution**
+- **What they are:** Deterministic Python scripts in `execution/` and backend logic in `backend/`.
+- **Function:** They do the heavy lifting: PDF parsing, OpenRouter API calls, embedding, file system management.
+- **Characteristic:** They must be **idempotent** (running the ingestion script twice must not duplicate vectors in the DB).
 
 ---
 
-## 2. Stack Tecnologico & Standard
+## 2. Technology Stack & Standards
 
 **Frontend (Client Layer)**
-- **Framework:** Next.js 14+ (App Router).
-- **Styling:** Tailwind CSS + Lucide React (Icone).
-- **State Management:** React Hooks / Context (Mantieni semplice per il PoC).
-- **Design System:** Moderno, "Industrial Tech". Colori scuri, accenti blu/verdi, font monospaziati per i dati tecnici.
+- **Build Tool:** Vite 6 (Dev Server & Production Build).
+- **Framework:** React 19 + TypeScript.
+- **Styling:** Tailwind CSS (CDN) + Lucide React (Icons).
+- **Markdown:** react-markdown + remark-gfm (for tables, formatted text).
+- **State Management:** React Hooks / Context (Keep it simple for the PoC).
+- **Design System:** Modern, "Industrial Tech". Dark/Light mode with Safety Orange (#FF6600) accent, monospaced fonts for technical data.
 
 **Backend (RAG & Logic Layer)**
-- **Framework:** FastAPI (Python).
-- **AI Orchestration:** LangChain (o LlamaIndex se specificato).
-- **Vector Store:** ChromaDB (Persistenza locale).
-- **LLM Provider:** OpenRouter API (modelli OpenAI, Anthropic, Gemini).
+- **Framework:** FastAPI (Python 3.11).
+- **AI Orchestration:** LangChain + LangGraph (Agentic RAG).
+- **Vector Store:** ChromaDB (Local persistence).
+- **LLM Provider:** OpenRouter API (Anthropic, OpenAI, Google models).
+- **PDF Parsing:** LlamaParse (vision-based) with PyPDFLoader fallback.
+- **Embeddings:** OpenAI text-embedding-3-small.
+- **Streaming:** Server-Sent Events (SSE) for real-time token delivery.
 
-**Interazione Frontend-Backend**
-- Il Frontend non chiama MAI direttamente OpenRouter o il DB.
-- Il Frontend chiama le API endpoint di FastAPI (es. `POST /api/chat`, `POST /api/upload`).
+**Frontend-Backend Interaction**
+- The Frontend NEVER calls OpenRouter or the DB directly.
+- The Frontend calls FastAPI API endpoints (e.g., `POST /api/chat/stream`, `GET /api/documents`).
+- Streaming responses use SSE with event types: status, token, sources, metadata, done.
 
 ---
 
-## 3. Struttura del Progetto
+## 3. Project Structure
 
-Mantieni questa struttura rigorosa per separare le responsabilità:
+Maintain this strict structure to separate responsibilities:
 
 ```text
-project-root/
-├── frontend/                 # Next.js App
-│   ├── app/                  # App Router pages
-│   ├── components/           # UI Components (ChatInterface, PDFViewer, ecc.)
-│   ├── lib/                  # Utility JS/TS
-│   └── public/               # Assets statici
-├── backend/                  # FastAPI App
+maintenance_ai_copilot/
+├── frontend/                    # React + Vite App
+│   ├── components/              # UI Components (ChatArea, ContextPanel, Sidebar)
+│   │   ├── ChatArea.tsx         # Main chat with Markdown rendering
+│   │   ├── ContextPanel.tsx     # Trust Layer panel (source verification)
+│   │   ├── Sidebar.tsx          # Chat history & navigation
+│   │   └── TableDisplay.tsx     # Table renderer component
+│   ├── services/                # API clients
+│   │   ├── backendService.ts    # FastAPI client (REST + SSE streaming)
+│   │   └── geminiService.ts     # Gemini API integration
+│   ├── App.tsx                  # Root component & state management
+│   ├── index.tsx                # React mount point
+│   ├── types.ts                 # TypeScript interfaces
+│   ├── constants.ts             # Model definitions & constants
+│   ├── index.html               # Tailwind CSS config & global styles
+│   ├── vite.config.ts           # Vite dev server & build config
+│   ├── package.json             # Node.js dependencies
+│   └── .env.local               # Frontend environment variables
+├── backend/                     # FastAPI App
 │   ├── app/
-│   │   ├── main.py           # Entry point & API Routes
-│   │   ├── core/             # Config & Security
-│   │   ├── rag/              # Logica RAG (Chain, Retriever)
-│   │   └── schemas/          # Pydantic Models (Request/Response)
-│   ├── requirements.txt
-│   └── .env                  # API Keys (OpenRouter, ecc.)
-├── data/                     # Knowledge Base
-│   ├── raw_pdfs/             # Manuali PDF originali
-│   └── chroma_db/            # Vector Database persistente (Gitignored)
-├── execution/                # Script di utilità/setup (Livello Execution)
-│   ├── ingest_knowledge.py   # Script per popolare il DB iniziale
-│   └── test_api.py           # Script per testare connessioni
-├── directives/               # SOP Markdown (Livello Directive)
-└── SYSTEM_SOP.md             # Questo file
+│   │   ├── main.py              # Entry point, CORS, PDF serving, health check
+│   │   ├── api/
+│   │   │   ├── chat.py          # Chat endpoints (standard + SSE streaming)
+│   │   │   └── documents.py     # Document management (ingest, list, stats, clear)
+│   │   ├── core/
+│   │   │   └── config.py        # Settings & feature flags (Pydantic Settings)
+│   │   ├── rag/
+│   │   │   ├── agent.py         # LangGraph agentic RAG (multi-hop retrieval)
+│   │   │   ├── chain.py         # RAG orchestrator (query expansion, streaming)
+│   │   │   ├── embeddings.py    # OpenAI embeddings configuration
+│   │   │   ├── ingestion.py     # PDF ingestion pipeline
+│   │   │   ├── llama_parser.py  # LlamaParse configuration
+│   │   │   ├── llm.py           # OpenRouter LLM configuration
+│   │   │   └── vector_store.py  # ChromaDB management (singleton)
+│   │   └── schemas/
+│   │       ├── chat.py          # Pydantic request/response schemas
+│   │       └── upload.py        # Upload schemas
+│   ├── .env                     # API Keys & configuration
+│   ├── requirements.txt         # Python dependencies
+│   └── venv/                    # Python 3.11 virtual environment
+├── data/                        # Knowledge Base
+│   ├── raw_pdfs/                # Original PDF manuals
+│   └── chroma_db/               # Persistent vector database (Gitignored)
+├── execution/                   # Utility/setup scripts (Execution Layer)
+│   ├── ingest_knowledge.py      # Script to populate the initial DB
+│   └── test_api.py              # Script to test connections
+├── directives/                  # SOP Markdown (Directive Layer)
+├── SYSTEM_SOP.md                # This file
+├── PRD.md                       # Product Requirements Document
+└── README.md                    # Project documentation
+```
