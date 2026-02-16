@@ -38,6 +38,9 @@ env/
 # ChromaDB - Vector Database (Large files)
 data/chroma_db/
 
+# Extracted PDF Images (Generated at runtime)
+data/images/
+
 # Logs
 *.log
 logs/

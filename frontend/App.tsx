@@ -147,6 +147,8 @@ const App: React.FC = () => {
           section: source.section,
           chunkIndex: source.chunk_index,
           totalChunks: source.total_chunks,
+          imageUrl: source.images?.length > 0 ? `http://localhost:8000${source.images[0]}` : undefined,
+          images: source.images?.map((img: string) => `http://localhost:8000${img}`) || [],
           description: source.content ? source.content.substring(0, 300) + '...' : '',
           fullContent: source.content || ''
         }));
@@ -225,6 +227,8 @@ const App: React.FC = () => {
                 section: source.section,
                 chunkIndex: source.chunk_index,
                 totalChunks: source.total_chunks,
+                imageUrl: source.images?.length > 0 ? `http://localhost:8000${source.images[0]}` : undefined,
+                images: source.images?.map((img: string) => `http://localhost:8000${img}`) || [],
                 description: source.content ? source.content.substring(0, 300) + '...' : '',
                 fullContent: source.content || ''
               }));

@@ -16,6 +16,7 @@ from langchain_community.document_loaders import PyPDFLoader
 from app.core.config import settings
 from app.rag.vector_store import get_vector_store, clear_collection, get_collection_stats
 from app.rag.llama_parser import load_pdf_with_llama_parse, is_llama_parse_available
+from app.rag.image_extractor import extract_images_from_pdf
 
 
 def extract_metadata_from_filename(filename: str) -> Dict[str, str]:
@@ -186,6 +187,10 @@ def ingest_pdfs(
         if docs:
             all_documents.extend(docs)
             files_processed.append(pdf_path.name)
+
+            # Extract images from PDF using PyMuPDF
+            print(f"Extracting images: {pdf_path.name}")
+            extract_images_from_pdf(pdf_path)
         else:
             files_failed.append(pdf_path.name)
 

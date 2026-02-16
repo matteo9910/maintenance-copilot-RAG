@@ -35,6 +35,7 @@ class SourceDocument(BaseModel):
     chunk_index: Optional[int] = None
     total_chunks: Optional[int] = None
     relevance_score: Optional[float] = None
+    images: List[str] = []  # Extracted image URLs for the source page
 
 
 class RAGMetadata(BaseModel):
@@ -82,7 +83,8 @@ async def chat(request: ChatRequest):
                 section=src.get("section"),
                 chunk_index=src.get("chunk_index"),
                 total_chunks=src.get("total_chunks"),
-                relevance_score=src.get("relevance_score")
+                relevance_score=src.get("relevance_score"),
+                images=src.get("images", [])
             )
             for src in result.get("sources", [])
         ]

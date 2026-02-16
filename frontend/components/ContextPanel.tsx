@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Maximize2, ExternalLink, ShieldCheck, X, BookOpen, Hash, Layers } from 'lucide-react';
+import { FileText, ExternalLink, ShieldCheck, X, BookOpen, Hash, Layers } from 'lucide-react';
 import { Reference } from '../types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -77,37 +77,21 @@ const ContextPanel: React.FC<ContextPanelProps> = ({ reference, isOpen, onClose 
               </div>
            </div>
 
-           {/* The "Exploded View" / Schematic - Only show if imageUrl exists */}
-           {reference.imageUrl ? (
-             <div className="relative border-y border-industrial-800 bg-gray-900/50 min-h-[180px] group">
-                <div className="absolute inset-0 pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5"></div>
-                <img
-                  src={reference.imageUrl}
-                  alt="Technical Schematic"
-                  className="w-full h-auto object-cover opacity-90 group-hover:opacity-100 transition-opacity"
-                />
-                <div className="absolute bottom-3 right-3 flex gap-2">
-                  <button className="p-1.5 bg-black/80 text-industrial-accent border border-industrial-accent/30 rounded hover:bg-industrial-accent hover:text-black transition-all">
-                    <Maximize2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-             </div>
-           ) : (
-             <div className="border-y border-industrial-800 bg-gray-900/50 py-4 px-4 flex items-center gap-3">
-                <FileText className="w-8 h-8 text-industrial-accent" />
-                <div>
-                  <a
-                    href={`${API_URL}/api/pdfs/${encodeURIComponent(reference?.source || '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-industrial-accent font-medium hover:text-orange-400 hover:underline cursor-pointer transition-colors"
-                  >
-                    {reference?.source || 'PDF Document'}
-                  </a>
-                  <p className="text-[10px] text-gray-600">Click to open source document</p>
-                </div>
-             </div>
-           )}
+           {/* Document Link */}
+           <div className="border-y border-industrial-800 bg-gray-900/50 py-4 px-4 flex items-center gap-3">
+              <FileText className="w-8 h-8 text-industrial-accent" />
+              <div>
+                <a
+                  href={`${API_URL}/api/pdfs/${encodeURIComponent(reference?.source || '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-industrial-accent font-medium hover:text-orange-400 hover:underline cursor-pointer transition-colors"
+                >
+                  {reference?.source || 'PDF Document'}
+                </a>
+                <p className="text-[10px] text-gray-600">Click to open source document</p>
+              </div>
+           </div>
 
            {/* Extracted Content Section */}
            <div className="p-5">

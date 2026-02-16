@@ -56,6 +56,9 @@ app.include_router(documents.router, prefix="/api/documents", tags=["documents"]
 # Serve PDF files from raw_pdfs directory
 PDF_DIRECTORY = Path(__file__).parent.parent.parent / "data" / "raw_pdfs"
 
+# Serve extracted images from data/images directory
+IMAGES_DIRECTORY = Path(__file__).parent.parent.parent / "data" / "images"
+
 @app.get("/api/pdfs/{filename}")
 async def serve_pdf(filename: str):
     """Serve PDF files from the raw_pdfs directory."""
@@ -67,6 +70,31 @@ async def serve_pdf(filename: str):
             filename=filename
         )
     return {"error": "PDF not found"}
+
+
+@app.get("/api/images/{pdf_name}/{image_file}")
+async def serve_image(pdf_name: str, image_file: str):
+    """Serve extracted images from the images directory."""
+    image_path = IMAGES_DIRECTORY / pdf_name / image_file
+    if not image_path.exists():
+        return {"error": "Image not found"}
+
+    # Determine media type from extension
+    ext = image_path.suffix.lower()
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".tiff": "image/tiff",
+    }
+    media_type = media_types.get(ext, "image/png")
+
+    return FileResponse(
+        path=image_path,
+        media_type=media_type,
+    )
 
 
 @app.get("/")

@@ -18,6 +18,7 @@ interface SourceDocument {
   chunk_index?: number;
   total_chunks?: number;
   relevance_score?: number;
+  images?: string[];
 }
 
 interface ChatResponse {

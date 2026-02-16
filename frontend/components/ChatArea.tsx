@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Send, Paperclip, Loader2, Cpu, FileText, PanelLeftOpen, ChevronDown, Moon, Sun, ShieldCheck, Search } from 'lucide-react';
+import { Send, Paperclip, Loader2, Cpu, FileText, PanelLeftOpen, ChevronDown, Moon, Sun, ShieldCheck, Search, Maximize2 } from 'lucide-react';
 import { Message, Reference } from '../types';
 import { AI_MODELS } from '../constants';
 import { StatusUpdate } from '../services/backendService';
@@ -264,6 +264,56 @@ const ChatArea: React.FC<ChatAreaProps> = ({
                         </ReactMarkdown>
                       ) : msg.content}
                     </div>
+
+                    {/* Inline Technical Images */}
+                    {msg.role === 'model' && msg.references && (() => {
+                      const allImages: { url: string; page?: string; source?: string }[] = [];
+                      const seenUrls = new Set<string>();
+                      const seenPages = new Set<string>();
+                      msg.references!.forEach(ref => {
+                        // Deduplicate by (source, page) - same page = same figures
+                        const pageKey = `${ref.source}::${ref.page || ''}`;
+                        if (seenPages.has(pageKey)) return;
+                        seenPages.add(pageKey);
+
+                        ref.images?.forEach(img => {
+                          // Also deduplicate by exact URL
+                          const urlPath = img.replace(/^https?:\/\/[^/]+/, '');
+                          if (!seenUrls.has(urlPath)) {
+                            seenUrls.add(urlPath);
+                            allImages.push({ url: img, page: ref.page, source: ref.source });
+                          }
+                        });
+                      });
+                      if (allImages.length === 0) return null;
+                      // Limit to max 4 figures per response to avoid redundancy
+                      const displayImages = allImages.slice(0, 4);
+                      return (
+                        <div className="mt-4 space-y-4">
+                          {displayImages.map((img, idx) => (
+                            <div key={idx} className="inline-block">
+                              <img
+                                src={img.url}
+                                alt={`Technical figure ${idx + 1}`}
+                                className="max-w-full h-auto rounded"
+                              />
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">
+                                  {img.source}{img.page ? ` - ${img.page}` : ''} | Figure {idx + 1}
+                                </span>
+                                <button
+                                  onClick={() => window.open(img.url, '_blank', 'noopener,noreferrer')}
+                                  className="text-[10px] text-industrial-accent hover:text-orange-400 font-medium flex items-center gap-1 cursor-pointer bg-transparent border-none"
+                                >
+                                  <Maximize2 className="w-3 h-3" />
+                                  Full size
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
 
                     {/* Citations */}
                     {msg.references && msg.references.length > 0 && (

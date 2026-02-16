@@ -8,6 +8,7 @@ export interface Reference {
   chunkIndex?: number;
   totalChunks?: number;
   imageUrl?: string;
+  images?: string[];
   description?: string;
   fullContent?: string;
 }

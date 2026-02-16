@@ -1,7 +1,7 @@
 # Product Requirements Document (PRD)
 **Project Name:** Maintenance AI Copilot (PoC)
-**Version:** 3.0
-**Status:** Full-Stack Implementation with Agentic RAG & Streaming
+**Version:** 4.0
+**Status:** Full-Stack Implementation with Agentic RAG, Streaming & Visual Figures
 **Date:** 2026-01-30
 **Owner:** Senior AI Engineer (Big4 Team)
 
@@ -13,6 +13,14 @@ The system uses a hybrid **RAG (Retrieval-Augmented Generation)** architecture: 
 The project strictly follows the **DOE (Directive-Orchestration-Execution)** development framework to ensure reliability and maintainability.
 
 ### Version History
+
+#### v4.0 - Inline Technical Figures & PDF Image Extraction (2026-02-16)
+- **PDF Figure Extraction**: New `image_extractor.py` module uses PyMuPDF to extract complete figure regions from PDF pages using a caption-anchored, three-phase pipeline (image clustering, caption detection, content expansion).
+- **Inline Technical Figures**: AI responses display relevant technical figures (diagrams, schematics, dimension drawings) inline with source attribution and page reference.
+- **Vector Graphics Capture**: Region-based rendering (`get_pixmap(clip=rect)`) captures all content including vector drawings, annotations, labels, and dimension lines -- not just embedded bitmap images.
+- **Image Deduplication**: Multi-level deduplication prevents duplicate figures in responses (page-level dedup, URL-path dedup, max 4 figures per response).
+- **Image Serving API**: New `GET /api/images/{pdf_stem}/{filename}` endpoint serves extracted figure images with proper MIME types.
+- **Manifest System**: JSON manifests track page-to-image mappings for each PDF, enabling fast lookup during RAG response enrichment.
 
 #### v3.0 - Full-Stack Polish & Markdown Rendering (2026-01-30)
 - **Markdown Rendering**: AI responses now render full Markdown including formatted tables, headers, lists, bold, and code blocks via `react-markdown` + `remark-gfm`.
@@ -76,6 +84,7 @@ The RAG module (`backend/app/rag/`) consists of the following components:
 |--------|-------------|
 | `llama_parser.py` | PDF parsing with LlamaParse (vision models) |
 | `ingestion.py` | Ingestion pipeline with PyPDFLoader fallback |
+| `image_extractor.py` | PDF figure extraction (region-based rendering with PyMuPDF) |
 | `embeddings.py` | OpenAI Embeddings configuration |
 | `vector_store.py` | ChromaDB management (singleton pattern) |
 | `agent.py` | LangGraph agent for multi-hop retrieval |
@@ -176,6 +185,25 @@ The RAG module (`backend/app/rag/`) consists of the following components:
 * **Light Theme:** Clean white/gray backgrounds with the same accent color.
 * **Persistence:** Theme preference maintained during the session.
 
+### FR-12: PDF Figure Extraction & Inline Display - v4.0
+* **Description:** The system extracts complete figure regions from PDF manuals and displays them inline in AI responses when relevant.
+* **Extraction Pipeline (three-phase):**
+    1. **Image Clustering:** PyMuPDF detects embedded image bounding boxes, filters decorative elements (< 50pt), and groups nearby images into figure clusters using rectangle merging (50pt threshold).
+    2. **Caption Detection:** For each cluster, searches for figure caption text (`Fig.X-Y`, `Figure N`) within 500pt below the image region.
+    3. **Content Expansion:** Expands the region horizontally to include all text annotations, labels, and notes within the figure's vertical range, then merges overlapping expanded regions.
+* **Rendering:** The complete figure region is rendered at 200 DPI using `page.get_pixmap(clip=rect)`, capturing vector graphics, dimension lines, and annotations exactly as they appear in the PDF.
+* **Manifest System:** A JSON manifest maps page numbers to extracted image filenames for each PDF, enabling fast lookup during response enrichment.
+* **Frontend Display:**
+    * Figures appear inline below AI responses with source attribution (`PDF name - Page N | Figure N`).
+    * "Full size" button opens the figure in a new browser tab at full resolution.
+    * Multi-level deduplication prevents duplicate figures: (source, page) pair dedup, URL-path dedup, and max 4 figures per response.
+* **API Endpoint:** `GET /api/images/{pdf_stem}/{filename}` serves extracted images with correct MIME types.
+* **Configuration:**
+    * `RENDER_DPI`: 200 (rendering quality)
+    * `MERGE_DISTANCE_PT`: 50 (image grouping threshold)
+    * `CAPTION_SEARCH_DISTANCE_PT`: 500 (max distance to caption below image)
+    * `FIGURE_PADDING_PT`: 10 (padding around rendered regions)
+
 ---
 
 ## 6. Frontend & UX Requirements
@@ -196,6 +224,7 @@ The RAG module (`backend/app/rag/`) consists of the following components:
     * Welcome screen with empty state.
     * Token-streamed messages with differentiated User/AI styling.
     * Full Markdown rendering (tables, headers, lists, bold, code blocks).
+    * Inline technical figures with source/page attribution and "Full size" viewer.
     * Citation buttons below AI responses.
     * "View Trust Layer" link for source verification.
     * Real-time processing status with animated icons.
@@ -236,6 +265,7 @@ The Frontend communicates with the Backend FastAPI through the following routes:
 | `GET` | `/api/documents/stats` | - | Collection statistics (count, status) |
 | `DELETE` | `/api/documents/clear` | - | Clear entire knowledge base |
 | `GET` | `/api/pdfs/{filename}` | - | Serve PDF file for download |
+| `GET` | `/api/images/{pdf_stem}/{filename}` | - | Serve extracted figure images |
 
 ### Chat Request Schema
 ```json
@@ -259,7 +289,8 @@ The Frontend communicates with the Backend FastAPI through the following routes:
       "source": "filename.pdf",
       "page": 123,
       "chapter": "string | null",
-      "section": "string | null"
+      "section": "string | null",
+      "images": ["/api/images/filename/page_123_fig_1.png"]
     }
   ],
   "conversation_id": "uuid",
@@ -331,6 +362,16 @@ event: done\ndata: {}
 * Dark/Light mode toggle with industrial theme.
 * Chat session management with sidebar history.
 
+**Phase 7: PDF Figure Extraction & Inline Display (Days 15-16)** — COMPLETED
+* PyMuPDF-based figure extraction with caption-anchored region detection.
+* Three-phase pipeline: image clustering, caption search (500pt range), content expansion with post-merge.
+* High-DPI rendering (200 DPI) capturing vector graphics, annotations, and dimension drawings.
+* JSON manifest system for page-to-image mapping.
+* Image serving API endpoint (`GET /api/images/{pdf_stem}/{filename}`).
+* Inline technical figures in chat responses with source attribution.
+* Multi-level frontend deduplication (page-level, URL-path, max 4 limit).
+* Full-size image viewing in new browser tab.
+
 ---
 
 ## 10. Configuration Reference (v3.0)
@@ -394,6 +435,7 @@ pypdf>=3.17.0
 pdfplumber>=0.10.3
 llama-parse>=0.4.0
 llama-index>=0.10.0
+PyMuPDF>=1.24.0
 
 # Agentic RAG (LangGraph)
 langgraph>=0.2.0
@@ -435,6 +477,7 @@ maintenance_ai_copilot/
 │   │   │   ├── agent.py            # LangGraph agentic RAG (multi-hop retrieval)
 │   │   │   ├── chain.py            # RAG orchestrator (query expansion, streaming)
 │   │   │   ├── embeddings.py       # OpenAI embeddings configuration
+│   │   │   ├── image_extractor.py  # PDF figure extraction (PyMuPDF region rendering)
 │   │   │   ├── ingestion.py        # PDF ingestion pipeline
 │   │   │   ├── llama_parser.py     # LlamaParse configuration
 │   │   │   ├── llm.py              # OpenRouter LLM configuration
@@ -465,6 +508,7 @@ maintenance_ai_copilot/
 │   └── .env.local                  # Frontend environment variables
 ├── data/
 │   ├── raw_pdfs/                   # Source PDF manuals
+│   ├── images/                     # Extracted figure regions (gitignored, generated)
 │   └── chroma_db/                  # ChromaDB persistent storage (gitignored)
 ├── execution/
 │   ├── ingest_knowledge.py         # Knowledge base ingestion script

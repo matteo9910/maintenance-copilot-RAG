@@ -84,6 +84,7 @@ maintenance_ai_copilot/
 │   │   │   ├── agent.py         # LangGraph agentic RAG (multi-hop retrieval)
 │   │   │   ├── chain.py         # RAG orchestrator (query expansion, streaming)
 │   │   │   ├── embeddings.py    # OpenAI embeddings configuration
+│   │   │   ├── image_extractor.py # PDF figure extraction (PyMuPDF region rendering)
 │   │   │   ├── ingestion.py     # PDF ingestion pipeline
 │   │   │   ├── llama_parser.py  # LlamaParse configuration
 │   │   │   ├── llm.py           # OpenRouter LLM configuration
@@ -96,6 +97,7 @@ maintenance_ai_copilot/
 │   └── venv/                    # Python 3.11 virtual environment
 ├── data/                        # Knowledge Base
 │   ├── raw_pdfs/                # Original PDF manuals
+│   ├── images/                  # Extracted figure regions (Gitignored, generated)
 │   └── chroma_db/               # Persistent vector database (Gitignored)
 ├── execution/                   # Utility/setup scripts (Execution Layer)
 │   ├── ingest_knowledge.py      # Script to populate the initial DB

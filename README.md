@@ -50,6 +50,14 @@ The system parses maintenance manuals into a vector database and uses a **multi-
   - Google Gemini 3 Pro
 - Compare model quality and speed in real-time
 
+### Inline Technical Figures
+- **Caption-anchored extraction** renders complete figure regions from PDF pages using PyMuPDF
+- Three-phase pipeline: image clustering, caption detection (`Fig.X-Y`), and content expansion
+- Captures vector graphics, annotations, labels, and dimension drawings -- not just embedded bitmaps
+- Figures displayed inline in chat responses with source attribution
+- Automatic deduplication prevents duplicate images across references
+- "Full size" button opens figures in a new browser tab at full resolution
+
 ### Vision-Based PDF Parsing
 - LlamaParse extracts tables with cell-level accuracy
 - Preserves complex table structures as markdown
@@ -147,6 +155,7 @@ maintenance_ai_copilot/
 │   │   │   ├── embeddings.py      # OpenAI embeddings configuration
 │   │   │   ├── llm.py             # OpenRouter LLM wrapper + model registry
 │   │   │   ├── ingestion.py       # PDF chunking & metadata extraction
+│   │   │   ├── image_extractor.py # PDF figure extraction (region-based rendering)
 │   │   │   └── llama_parser.py    # LlamaParse integration for tables
 │   │   └── schemas/
 │   │       ├── chat.py            # Request/response Pydantic models
@@ -168,6 +177,7 @@ maintenance_ai_copilot/
 │   └── package.json
 ├── data/
 │   ├── raw_pdfs/                  # Source PDF manuals
+│   ├── images/                    # Extracted figure regions (gitignored, generated)
 │   └── chroma_db/                 # Vector database (gitignored)
 ├── execution/
 │   ├── ingest_knowledge.py        # Standalone ingestion script
@@ -323,6 +333,7 @@ python ingest_knowledge.py
 3. Each chunk receives metadata: source, page, chapter, section, chunk index
 4. Chunks are embedded with OpenAI `text-embedding-3-small`
 5. Vectors are stored in ChromaDB at `data/chroma_db/`
+6. **Figure extraction:** PyMuPDF detects image bounding boxes, groups them into figure clusters, locates captions (`Fig.X-Y`), and renders complete figure regions (including vector graphics and annotations) as high-DPI PNGs to `data/images/`
 
 The script is idempotent -- running it again will not duplicate documents.
 
@@ -379,7 +390,7 @@ event: token
 data: Based on the maintenance manual...
 
 event: sources
-data: [{"content": "...", "source": "manual.pdf", "page": 45, ...}]
+data: [{"content": "...", "source": "manual.pdf", "page": 45, "images": ["/api/images/manual/page_45_fig_1.png"], ...}]
 
 event: metadata
 data: {"mode": "agentic_streaming", "iterations": 3, "queries_executed": [...]}
@@ -397,6 +408,12 @@ data: [DONE]
 | `DELETE` | `/api/documents/clear` | Clear entire knowledge base |
 | `GET` | `/api/documents/stats` | Vector store statistics |
 | `GET` | `/api/pdfs/{filename}` | Serve original PDF files |
+
+### Images
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/images/{pdf_stem}/{filename}` | Serve extracted figure images |
 
 ---
 
@@ -451,6 +468,7 @@ Single-pass retrieval with **query expansion**:
 The main conversation interface supporting:
 - Real-time token streaming with processing status indicators
 - Markdown rendering (bold, italic, lists, code blocks, tables)
+- Inline technical figures with source attribution and deduplication
 - Image upload for visual fault diagnosis
 - Model selection dropdown
 - Auto-scrolling and auto-resizing input area

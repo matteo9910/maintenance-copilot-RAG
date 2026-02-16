@@ -24,6 +24,7 @@ from app.core.config import settings
 from app.rag.llm import get_llm
 from app.rag.vector_store import get_retriever
 from app.rag.agent import query_rag_agent, is_agentic_rag_available
+from app.rag.image_extractor import get_images_for_sources
 
 
 # =============================================================================
@@ -279,6 +280,9 @@ async def _query_rag_agentic(
             "relevance_score": None
         })
 
+    # Enrich sources with extracted images
+    formatted_sources = get_images_for_sources(formatted_sources)
+
     return {
         "answer": result["answer"],
         "sources": formatted_sources,
@@ -357,6 +361,9 @@ async def _query_rag_legacy(
         }
         for doc in docs
     ]
+
+    # Enrich sources with extracted images
+    sources = get_images_for_sources(sources)
 
     return {
         "answer": answer,
@@ -545,6 +552,9 @@ async def query_rag_stream(
         }
         for doc in docs
     ]
+
+    # Enrich sources with extracted images
+    sources = get_images_for_sources(sources)
 
     # Yield sources
     yield f"event: sources\ndata: {json.dumps(sources)}\n\n"
