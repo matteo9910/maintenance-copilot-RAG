@@ -44,10 +44,10 @@ The system parses maintenance manuals into a vector database and uses a **multi-
 - Chunk position tracking (e.g., "Segment 3 of 12")
 
 ### Multi-Model Support
-- Switch between LLMs per query via OpenRouter:
-  - Anthropic Claude Sonnet 4
-  - OpenAI GPT-4o / GPT-5
-  - Google Gemini 3 Pro
+- Switch between Azure OpenAI models per query:
+  - GPT-5.2 (Latest)
+  - GPT-5 (Advanced)
+  - GPT-4.1 (Fast & Efficient)
 - Compare model quality and speed in real-time
 
 ### Inline Technical Figures
@@ -58,10 +58,15 @@ The system parses maintenance manuals into a vector database and uses a **multi-
 - Automatic deduplication prevents duplicate images across references
 - "Full size" button opens figures in a new browser tab at full resolution
 
-### Vision-Based PDF Parsing
-- LlamaParse extracts tables with cell-level accuracy
+### Intelligent PDF Parsing
+- Azure Document Intelligence extracts tables with cell-level accuracy
 - Preserves complex table structures as markdown
-- Automatic fallback to PyPDFLoader if LlamaParse is unavailable
+- Automatic fallback to PyPDFLoader if Azure DI is unavailable
+
+### Semantic Reranking
+- Cohere Rerank v4.0 Pro via Azure improves retrieval precision
+- Two-stage retrieval: broad candidate fetch + semantic reranking
+- Configurable candidate multiplier and top-N selection
 
 ### Multimodal Input
 - Upload images of equipment faults or error codes
@@ -86,27 +91,24 @@ The system parses maintenance manuals into a vector database and uses a **multi-
                                               |   (LangChain +     |
                                               |    LangGraph)      |
                                               |                    |
-                                              +----+----------+----+
-                                                   |          |
-                                          +--------+--+  +----+----------+
-                                          |           |  |               |
-                                          | ChromaDB  |  | OpenRouter    |
-                                          | (Vectors) |  | (LLM API)    |
-                                          |           |  |               |
-                                          +-----------+  +---------------+
-                                               |
-                                          +-----------+
-                                          | OpenAI    |
-                                          | Embeddings|
-                                          +-----------+
+                                              +----+-----+--------+
+                                                   |     |        |
+                                          +--------+-+ +-+------+ +----------+
+                                          |          | |         | |          |
+                                          | ChromaDB | | Azure   | | Cohere   |
+                                          | (Vectors)| | OpenAI  | | Reranker |
+                                          |          | | (LLM +  | | (Azure)  |
+                                          +----------+ | Embed.) | +----------+
+                                                       +---------+
 ```
 
 **Data flow:**
 1. User submits a question (+ optional image) from the frontend
 2. Backend receives the request and activates the RAG agent
 3. The agent searches ChromaDB iteratively, following cross-references
-4. Retrieved context is sent to the LLM via OpenRouter for answer generation
-5. Tokens are streamed back to the frontend in real-time with source citations
+4. Retrieved candidates are reranked using Cohere Rerank v4.0 Pro
+5. Context is sent to Azure OpenAI (GPT-5.2/GPT-5/GPT-4.1) for answer generation
+6. Tokens are streamed back to the frontend in real-time with source citations
 
 ---
 
@@ -120,9 +122,10 @@ The system parses maintenance manuals into a vector database and uses a **multi-
 | RAG Framework | LangChain 0.3+ |
 | Agentic RAG | LangGraph 0.2+ |
 | Vector Database | ChromaDB (persistent, SQLite-backed) |
-| Embeddings | OpenAI `text-embedding-3-small` (1536 dims) |
-| LLM Provider | OpenRouter API (multi-model) |
-| PDF Parsing | LlamaParse (vision) + PyPDF (fallback) |
+| Embeddings | Azure OpenAI `text-embedding-3-large` |
+| LLM Provider | Azure OpenAI (GPT-5.2, GPT-5, GPT-4.1) |
+| Reranker | Cohere Rerank v4.0 Pro (via Azure AI) |
+| PDF Parsing | Azure Document Intelligence + PyPDF (fallback) |
 | Configuration | Pydantic Settings |
 
 ### Frontend
@@ -149,14 +152,15 @@ maintenance_ai_copilot/
 │   │   │   ├── chat.py            # Chat endpoints (POST /api/chat, /api/chat/stream)
 │   │   │   └── documents.py       # Document management (ingest, list, clear)
 │   │   ├── rag/
-│   │   │   ├── agent.py           # LangGraph agentic multi-hop retrieval
-│   │   │   ├── chain.py           # RAG orchestration (agentic + legacy modes)
-│   │   │   ├── vector_store.py    # ChromaDB client (singleton pattern)
-│   │   │   ├── embeddings.py      # OpenAI embeddings configuration
-│   │   │   ├── llm.py             # OpenRouter LLM wrapper + model registry
-│   │   │   ├── ingestion.py       # PDF chunking & metadata extraction
-│   │   │   ├── image_extractor.py # PDF figure extraction (region-based rendering)
-│   │   │   └── llama_parser.py    # LlamaParse integration for tables
+│   │   │   ├── agent.py                  # LangGraph agentic multi-hop retrieval
+│   │   │   ├── chain.py                  # RAG orchestration (agentic + legacy modes)
+│   │   │   ├── vector_store.py           # ChromaDB client + reranked retriever
+│   │   │   ├── embeddings.py             # Azure OpenAI embeddings configuration
+│   │   │   ├── llm.py                    # Azure OpenAI LLM wrapper + model registry
+│   │   │   ├── ingestion.py              # PDF chunking & metadata extraction
+│   │   │   ├── image_extractor.py        # PDF figure extraction (region-based rendering)
+│   │   │   ├── azure_doc_intelligence.py # Azure Document Intelligence PDF parser
+│   │   │   └── reranker.py               # Cohere reranker via Azure AI
 │   │   └── schemas/
 │   │       ├── chat.py            # Request/response Pydantic models
 │   │       └── upload.py          # Upload schemas
@@ -195,10 +199,10 @@ maintenance_ai_copilot/
 - **Python** 3.9+
 - **Node.js** 16+
 - **npm** 8+
-- **API Keys:**
-  - [OpenRouter](https://openrouter.ai/) -- LLM access (Claude, GPT-4o, Gemini)
-  - [OpenAI](https://platform.openai.com/) -- Embeddings (`text-embedding-3-small`)
-  - [LlamaCloud](https://cloud.llamaindex.ai/) -- Advanced PDF parsing (optional)
+- **Azure Resources:**
+  - [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) -- LLM access (GPT-5.2, GPT-5, GPT-4.1) and Embeddings (`text-embedding-3-large`)
+  - [Azure Document Intelligence](https://azure.microsoft.com/en-us/products/ai-services/ai-document-intelligence) -- PDF parsing (optional, falls back to PyPDF)
+  - [Azure AI - Cohere Reranker](https://azure.microsoft.com/en-us/products/ai-services/) -- Semantic reranking (optional)
 
 ---
 
@@ -240,21 +244,37 @@ npm install
 Create a `.env` file in the `backend/` directory:
 
 ```env
-# LLM Provider (required)
-OPENROUTER_API_KEY=sk-or-v1-your-key-here
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+# Azure OpenAI (required)
+AZURE_OPENAI_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key_here
 
-# Embeddings (required)
-OPENAI_API_KEY=sk-proj-your-key-here
+# Azure Model Deployments
+AZURE_GPT52_DEPLOYMENT=gpt_5.2
+AZURE_GPT52_API_VERSION=2024-12-01-preview
+AZURE_GPT5_DEPLOYMENT=gpt-5
+AZURE_GPT5_API_VERSION=2025-01-01-preview
+AZURE_GPT41_DEPLOYMENT=gpt-4.1
+AZURE_GPT41_API_VERSION=2025-01-01-preview
 
-# Advanced PDF Parsing (optional - falls back to PyPDF if not set)
-LLAMA_CLOUD_API_KEY=llx-your-key-here
+# Default Model
+DEFAULT_MODEL=gpt-5.2
 
-# Default LLM model
-DEFAULT_MODEL=anthropic/claude-sonnet-4
+# Azure Embedding
+AZURE_EMBEDDING_DEPLOYMENT=text-embedding-3-large
+AZURE_EMBEDDING_API_VERSION=2023-05-15
+EMBEDDING_MODEL=text-embedding-3-large
+
+# Azure Document Intelligence (optional - falls back to PyPDF if not set)
+AZURE_DOC_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com/
+AZURE_DOC_INTELLIGENCE_KEY=your_doc_intelligence_key_here
+
+# Azure Cohere Reranker (optional - retrieval works without it)
+AZURE_RERANKER_ENDPOINT=https://your-resource.services.ai.azure.com/providers/cohere/v2/rerank
+AZURE_RERANKER_API_KEY=your_reranker_api_key_here
+AZURE_RERANKER_MODEL=Cohere-rerank-v4.0-pro
 
 # Feature flags
-USE_LLAMA_PARSE=true
+USE_AZURE_DOC_INTELLIGENCE=true
 USE_AGENTIC_RAG=true
 MAX_AGENT_ITERATIONS=5
 
@@ -310,9 +330,9 @@ Expected response:
   "components": {
     "api": "ok",
     "vector_store": { "status": "ok", "documents_indexed": 950 },
-    "llm_provider": "openrouter"
+    "llm_provider": "azure_openai"
   },
-  "available_models": ["anthropic/claude-sonnet-4", "openai/gpt-4o", ...]
+  "available_models": ["gpt-5.2", "gpt-5", "gpt-4.1"]
 }
 ```
 
@@ -328,11 +348,11 @@ python ingest_knowledge.py
 ```
 
 **What happens:**
-1. PDFs are loaded with LlamaParse (vision-based, preserves tables) or PyPDF (fallback)
+1. PDFs are loaded with Azure Document Intelligence (preserves tables/figures) or PyPDF (fallback)
 2. Documents are split into chunks (1000 chars, 200 char overlap)
 3. Each chunk receives metadata: source, page, chapter, section, chunk index
-4. Chunks are embedded with OpenAI `text-embedding-3-small`
-5. Vectors are stored in ChromaDB at `data/chroma_db/`
+4. Chunks are embedded with Azure OpenAI `text-embedding-3-large`
+5. Vectors are stored in ChromaDB at `data/chroma_db/` (batched ingestion with rate limit handling)
 6. **Figure extraction:** PyMuPDF detects image bounding boxes, groups them into figure clusters, locates captions (`Fig.X-Y`), and renders complete figure regions (including vector graphics and annotations) as high-DPI PNGs to `data/images/`
 
 The script is idempotent -- running it again will not duplicate documents.
@@ -366,7 +386,7 @@ curl -X POST http://localhost:8000/api/documents/ingest
 ```json
 {
   "query": "What maintenance is needed at 300 operating hours?",
-  "model": "anthropic/claude-sonnet-4",
+  "model": "gpt-5.2",
   "history": [
     { "role": "user", "content": "previous question" },
     { "role": "assistant", "content": "previous answer" }
@@ -526,12 +546,24 @@ npm run preview  # preview the production build
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENROUTER_API_KEY` | Yes | -- | OpenRouter API key for LLM access |
-| `OPENAI_API_KEY` | Yes | -- | OpenAI API key for embeddings |
-| `LLAMA_CLOUD_API_KEY` | No | -- | LlamaCloud key for advanced PDF parsing |
-| `DEFAULT_MODEL` | No | `anthropic/claude-sonnet-4.5` | Default LLM model |
+| `AZURE_OPENAI_ENDPOINT` | Yes | -- | Azure OpenAI resource endpoint |
+| `AZURE_OPENAI_API_KEY` | Yes | -- | Azure OpenAI API key |
+| `AZURE_GPT52_DEPLOYMENT` | No | `gpt-5.2` | GPT-5.2 deployment name |
+| `AZURE_GPT52_API_VERSION` | No | `2024-12-01-preview` | GPT-5.2 API version |
+| `AZURE_GPT5_DEPLOYMENT` | No | `gpt-5` | GPT-5 deployment name |
+| `AZURE_GPT5_API_VERSION` | No | `2025-01-01-preview` | GPT-5 API version |
+| `AZURE_GPT41_DEPLOYMENT` | No | `gpt-4.1` | GPT-4.1 deployment name |
+| `AZURE_GPT41_API_VERSION` | No | `2025-01-01-preview` | GPT-4.1 API version |
+| `DEFAULT_MODEL` | No | `gpt-5.2` | Default LLM model |
+| `AZURE_EMBEDDING_DEPLOYMENT` | No | `text-embedding-3-large` | Embedding deployment name |
+| `AZURE_EMBEDDING_API_VERSION` | No | `2023-05-15` | Embedding API version |
+| `AZURE_DOC_INTELLIGENCE_ENDPOINT` | No | -- | Azure Document Intelligence endpoint |
+| `AZURE_DOC_INTELLIGENCE_KEY` | No | -- | Azure Document Intelligence key |
+| `AZURE_RERANKER_ENDPOINT` | No | -- | Azure Cohere reranker endpoint |
+| `AZURE_RERANKER_API_KEY` | No | -- | Azure Cohere reranker API key |
+| `AZURE_RERANKER_MODEL` | No | `Cohere-rerank-v4.0-pro` | Reranker model name |
+| `USE_AZURE_DOC_INTELLIGENCE` | No | `true` | Enable Azure DI for PDF parsing |
 | `USE_AGENTIC_RAG` | No | `true` | Enable multi-hop agentic retrieval |
-| `USE_LLAMA_PARSE` | No | `true` | Enable vision-based PDF parsing |
 | `MAX_AGENT_ITERATIONS` | No | `5` | Max retrieval hops per query |
 | `CHROMA_PERSIST_DIRECTORY` | No | `../data/chroma_db` | Vector DB path |
 | `RAW_PDFS_DIRECTORY` | No | `../data/raw_pdfs` | Source PDFs path |
