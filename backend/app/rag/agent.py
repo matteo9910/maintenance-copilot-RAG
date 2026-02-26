@@ -443,19 +443,36 @@ async def query_rag_agent(
     final_messages = final_state["messages"]
     answer = ""
     for msg in reversed(final_messages):
-        if isinstance(msg, AIMessage) and not hasattr(msg, "tool_calls"):
-            answer = msg.content
-            break
-        elif isinstance(msg, AIMessage) and hasattr(msg, "tool_calls") and not msg.tool_calls:
+        if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", []):
             answer = msg.content
             break
 
-    # If no clean answer found, get the last AI message content
+    # If no clean answer found, get any AI message with content
     if not answer:
         for msg in reversed(final_messages):
-            if isinstance(msg, AIMessage):
+            if isinstance(msg, AIMessage) and msg.content:
                 answer = msg.content
                 break
+
+    # If still no answer (agent hit max iterations with only tool calls),
+    # generate a final answer from the retrieved documents
+    if not answer:
+        retrieved_docs = get_retrieved_documents()
+        if retrieved_docs:
+            from app.rag.chain import format_docs, SYSTEM_PROMPT
+            from langchain_core.documents import Document as LCDoc
+            from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+            from langchain_core.output_parsers import StrOutputParser
+
+            docs = [LCDoc(page_content=d.get("content", ""), metadata=d) for d in retrieved_docs]
+            context = format_docs(docs)
+            llm = get_llm(model_id=model_id)
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", SYSTEM_PROMPT),
+                ("human", "{question}")
+            ])
+            chain = prompt | llm | StrOutputParser()
+            answer = await chain.ainvoke({"context": context, "question": question})
 
     # Get all retrieved documents with full content for trust layer
     retrieved_docs = get_retrieved_documents()

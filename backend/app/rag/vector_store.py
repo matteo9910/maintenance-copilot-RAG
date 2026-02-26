@@ -39,13 +39,51 @@ def get_vector_store() -> Chroma:
     )
 
 
-def get_retriever(k: int = 4):
-    """Get retriever from vector store."""
+def get_retriever(k: int = 4, use_reranker: bool = True):
+    """
+    Get retriever from vector store with optional reranking.
+
+    When reranking is enabled, retrieves more candidates (k*3) then
+    reranks to return the top k most relevant documents.
+    """
+    from app.rag.reranker import is_reranker_available
+
+    if use_reranker and is_reranker_available():
+        return _get_reranked_retriever(k=k)
+
     vector_store = get_vector_store()
     return vector_store.as_retriever(
         search_type="similarity",
         search_kwargs={"k": k}
     )
+
+
+def _get_reranked_retriever(k: int = 4):
+    """Get a retriever that uses Cohere reranking after initial retrieval."""
+    from typing import List
+    from langchain_core.callbacks import CallbackManagerForRetrieverRun
+    from langchain_core.retrievers import BaseRetriever
+    from langchain_core.documents import Document as LCDocument
+    from app.rag.reranker import rerank_documents
+
+    class RerankedRetriever(BaseRetriever):
+        """Retriever that fetches candidates then reranks with Cohere."""
+        base_k: int = k
+        candidate_multiplier: int = 3
+
+        def _get_relevant_documents(
+            self, query: str, *, run_manager: CallbackManagerForRetrieverRun
+        ) -> List[LCDocument]:
+            vector_store = get_vector_store()
+            candidates_k = self.base_k * self.candidate_multiplier
+            base_retriever = vector_store.as_retriever(
+                search_type="similarity",
+                search_kwargs={"k": candidates_k}
+            )
+            candidates = base_retriever.invoke(query)
+            return rerank_documents(query, candidates, top_n=self.base_k)
+
+    return RerankedRetriever(base_k=k)
 
 
 def add_documents(documents: list[Document]) -> int:

@@ -2,7 +2,7 @@
 
 This module handles the ingestion of PDF documents into the vector store.
 It supports two parsing modes:
-1. LlamaParse (default): Uses vision models for accurate table extraction
+1. Azure Document Intelligence (default): Accurate table/figure extraction
 2. PyPDFLoader (fallback): Traditional text-based PDF extraction
 """
 import os
@@ -15,7 +15,7 @@ from langchain_community.document_loaders import PyPDFLoader
 
 from app.core.config import settings
 from app.rag.vector_store import get_vector_store, clear_collection, get_collection_stats
-from app.rag.llama_parser import load_pdf_with_llama_parse, is_llama_parse_available
+from app.rag.azure_doc_intelligence import load_pdf_with_azure_di, is_azure_di_available
 from app.rag.image_extractor import extract_images_from_pdf
 
 
@@ -51,33 +51,30 @@ def extract_metadata_from_filename(filename: str) -> Dict[str, str]:
     }
 
 
-def load_pdf(pdf_path: Path, use_llama_parse: Optional[bool] = None) -> List[Document]:
+def load_pdf(pdf_path: Path, use_azure_di: Optional[bool] = None) -> List[Document]:
     """
     Load a single PDF and return documents with metadata.
 
-    Uses LlamaParse by default for better table extraction.
-    Falls back to PyPDFLoader if LlamaParse fails or is disabled.
+    Uses Azure Document Intelligence by default for better table extraction.
+    Falls back to PyPDFLoader if Azure DI fails or is disabled.
 
     Args:
         pdf_path: Path to the PDF file.
-        use_llama_parse: Override config setting for LlamaParse usage.
+        use_azure_di: Override config setting for Azure DI usage.
 
     Returns:
         List of Document objects with content and metadata.
     """
-    # Extract metadata from filename first
     file_metadata = extract_metadata_from_filename(pdf_path.name)
 
-    # Determine if we should use LlamaParse
-    should_use_llama = use_llama_parse if use_llama_parse is not None else settings.USE_LLAMA_PARSE
+    should_use_azure_di = use_azure_di if use_azure_di is not None else settings.USE_AZURE_DOC_INTELLIGENCE
 
-    # Try LlamaParse first if enabled and available
-    if should_use_llama and is_llama_parse_available():
-        print(f"  Using LlamaParse for: {pdf_path.name}")
-        pages = load_pdf_with_llama_parse(pdf_path, file_metadata)
+    if should_use_azure_di and is_azure_di_available():
+        print(f"  Using Azure Document Intelligence for: {pdf_path.name}")
+        pages = load_pdf_with_azure_di(pdf_path, file_metadata)
         if pages:
             return pages
-        print(f"  LlamaParse failed, falling back to PyPDFLoader for: {pdf_path.name}")
+        print(f"  Azure DI failed, falling back to PyPDFLoader for: {pdf_path.name}")
 
     # Fallback to PyPDFLoader
     try:
@@ -206,10 +203,27 @@ def ingest_pdfs(
     print(f"Chunking {len(all_documents)} pages...")
     chunks = chunk_documents(all_documents, chunk_size, chunk_overlap)
 
-    # Add to vector store
-    print(f"Adding {len(chunks)} chunks to vector store...")
+    # Add to vector store in batches to avoid rate limits
+    import time
+    BATCH_SIZE = 50
+    print(f"Adding {len(chunks)} chunks to vector store (batch size {BATCH_SIZE})...")
     vector_store = get_vector_store()
-    vector_store.add_documents(chunks)
+    for i in range(0, len(chunks), BATCH_SIZE):
+        batch = chunks[i:i + BATCH_SIZE]
+        batch_num = i // BATCH_SIZE + 1
+        total_batches = (len(chunks) + BATCH_SIZE - 1) // BATCH_SIZE
+        print(f"  Batch {batch_num}/{total_batches} ({len(batch)} chunks)...")
+        try:
+            vector_store.add_documents(batch)
+        except Exception as e:
+            if "429" in str(e) or "RateLimit" in str(e):
+                print(f"  Rate limited, waiting 60s...")
+                time.sleep(60)
+                vector_store.add_documents(batch)
+            else:
+                raise
+        if i + BATCH_SIZE < len(chunks):
+            time.sleep(5)
 
     # Get final stats
     stats = get_collection_stats()

@@ -1,10 +1,9 @@
 import { ModelOption, Reference, ChatSession } from './types';
 
 export const AI_MODELS: ModelOption[] = [
-  { id: 'anthropic/claude-sonnet-4', name: 'Sonnet 4.5', provider: 'Anthropic', description: 'Reasoning', available: true },
-  { id: 'openai/gpt-4o', name: 'GPT-4o', provider: 'OpenAI', description: 'General Purpose', available: true },
-  { id: 'openai/gpt-5', name: 'GPT-5', provider: 'OpenAI', description: 'Latest', available: true },
-  { id: 'google/gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', provider: 'Google', description: 'Multimodal', available: true },
+  { id: 'gpt-5.2', name: 'GPT-5.2', provider: 'Azure OpenAI', description: 'Latest', available: true },
+  { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'Azure OpenAI', description: 'Fast & Efficient', available: true },
+  { id: 'gpt-5', name: 'GPT-5', provider: 'Azure OpenAI', description: 'Advanced', available: true },
 ];
 
 export const MOCK_HISTORY: ChatSession[] = [];

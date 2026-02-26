@@ -123,7 +123,7 @@ async def health_check():
                 "status": vector_store_status,
                 "documents_indexed": vector_count
             },
-            "llm_provider": "openrouter"
+            "llm_provider": "azure_openai"
         },
         "available_models": list(get_available_models().keys())
     }

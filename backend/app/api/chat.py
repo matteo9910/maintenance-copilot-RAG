@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.rag.chain import query_rag, query_rag_stream
 from app.rag.llm import get_available_models
 
@@ -101,7 +102,7 @@ async def chat(request: ChatRequest):
             answer=result["answer"],
             sources=sources,
             conversation_id=str(uuid.uuid4()),
-            model_used=request.model or "openai/gpt-4o",
+            model_used=request.model or settings.DEFAULT_MODEL,
             rag_metadata=rag_metadata
         )
 
